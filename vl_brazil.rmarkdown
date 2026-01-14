@@ -1,0 +1,538 @@
+---
+title: "VL Brazil anaylisis of the risk factors associated with delay symptoms to treatment"
+author: "Juan Sebastian Hurtado Zapata"
+format: 
+  html:
+    smooth-scroll: true
+    code-fold: false
+    toc: true
+    toc-location: right
+    theme: Lumen
+    embed-resources: true
+execute: 
+  echo: false
+  warning: false
+css: styles.css
+editor: visual
+---
+
+```{r}
+#### activation of Packages and import work's database
+pacman::p_load(flextable, tidyverse, janitor, epikit, gtsummary, rio, grid, geobr,
+               survival, survminer, sf, here, incidence, scales, ggstance, ggbeeswarm, ggpubr)
+
+data_6 <- rio::import(here("data base and clean", "data_6.rda"))
+```
+
+# Visceral Leishmaniasis in Brazil, analysis using epidemiological information
+
+## Generalities and descriptive analysis - Visceral Leishmaniasis in Brazil, 2007 to 2023
+
+### Table 1. General characteristics: Sociodemographic and clinical information
+
+```{r}
+theme_gtsummary_journal("lancet")
+
+data_6 %>% 
+  mutate(dif_day_tx_symp = as.numeric(dif_day_tx_symp),
+         relapse_2 = if_else(relapse == 1, T, F)) %>%
+  select(age_years, gender, education_level, race_2, pregnant, identification_case, 
+         hiv_2, dif_day_dx_symp, dif_day_tx_symp, name_tx, treatment_failure, relapse_2, evolution) %>% 
+  tbl_summary(by = evolution, 
+              #missing_stat = "{n} ({p}%)",
+              missing = "no",
+              statistic = list(all_categorical() ~ "{n} ({p}%)",
+                               all_continuous() ~ "{median} ({p25},{p75})"), 
+              label = list(age_years = "Age years",
+                           # age_group = "Age group",
+                           gender = "Gender",
+                           education_level = "Education level",
+                           race_2 = "Race/Color",
+                           pregnant = "Gestational age",
+                           identification_case = "Case identification",
+                           dif_day_tx_symp = "Days symptoms to treatment",         
+                           dif_day_dx_symp = "Days symptoms to diagnosis",
+                           name_tx = "Treatment",
+                           hiv_2 = "HIV status",
+                           treatment_failure = "Treatment failure",
+                           relapse_2 = "Relapse")) %>% 
+  add_overall(last = T) %>% 
+  bold_labels() %>% 
+  as_flex_table() %>% 
+  autofit()
+  
+```
+
+### Table 2. Clinic and treatment features in database by delay symptoms onset to treatment,
+
+```{r}
+data_6 %>% 
+  mutate(dif_day_tx_symp = as.numeric(dif_day_tx_symp),
+         relapse_2 = if_else(relapse == 1, T, F)) %>%
+  select(name_tx, treatment_failure,  hiv_2, relapse_2, evolution, 
+         dif_treat_start_symp_cat) %>% 
+  tbl_summary(by = dif_treat_start_symp_cat, 
+              #missing_stat = "{n} ({p}%)",
+              missing = "no",
+              statistic = list(all_categorical() ~ "{n} ({p}%)",
+                               all_continuous() ~ "{median} ({p25},{p75})"), 
+              label = list(dif_treat_start_symp_cat = "Delay symptoms to treatment",                      
+                           name_tx = "Treatment",
+                           hiv_2 = "HIV status",
+                           treatment_failure = "Treatment failure",
+                           relapse_2 = "Relapse")) %>% 
+  add_overall(last = T) %>% 
+  bold_labels() %>% 
+  as_flex_table() %>% 
+  autofit()
+```
+
+### Endemic channel Visceral Leishmaniasis in Brazil, from 2007 to 2023
+
+```{r}
+ec_vl_2 <- import(here("data base and clean", "database_endemic_channel.rda"))
+
+ec_vl_b <- ggplot(data = ec_vl_2, mapping = aes(x = date, y = obs)) +
+  geom_line(aes(y = low_lim, color = "Low limit")) +
+  geom_line(aes(y = central, color = "Central")) +
+  geom_line(aes(y = up_lim, color = "Upper limit")) +
+  geom_ribbon(aes(ymin = central, ymax = up_lim), alpha = 0.3, fill = "darkred") +
+  geom_ribbon(aes(ymin = low_lim, ymax = central), alpha = 0.3, fill = "orange") +
+  geom_ribbon(aes(ymin = min(low_lim), ymax = low_lim), alpha = 0.3, fill = "darkgreen") +
+  geom_point() +
+  geom_line() +
+  labs(x = "Date", y = "Visceral Leishmaniasis Cases") + 
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, size = 12, color = "black"), 
+    legend.position = "no",
+    axis.title = element_text(face = "bold", size = 14, color = "black"),
+  ) +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b/%y") +
+  scale_y_continuous(n.breaks = 10, limits = c(0, 130)) +
+  scale_color_manual(values = c("Low limit" = "darkgreen", "Upper limit" = "darkred", "Central" = "orange")) 
+                                  
+print(ec_vl_b)
+```
+
+### Histogram difference days between symptoms onset
+
+```{r}
+#| warning: false
+
+
+distribution_histogram <- ggplot(data = data_6 %>% filter(!dif_day_tx_dx < 0 & dif_day_tx_symp < 366), aes(x = as.numeric(dif_day_dx_symp))) +
+  geom_histogram(position = "identity", aes(y = after_stat(density), fill = "Symptoms to diagnosis"), color = "black") +
+  geom_histogram(aes(x = as.numeric(dif_day_tx_dx), y = after_stat(density), fill = "Diagnosis to treatment"), alpha = 0.3, color = "black") +
+  scale_x_continuous(transform = "log", n.breaks = 10, labels = label_number(accuracy = 1)) +
+  scale_y_continuous(n.breaks = 10) +
+  scale_fill_manual(values = c("Symptoms to diagnosis" = "skyblue", "Diagnosis to treatment" = "brown2")) +
+  labs(fill = "Delay time", x = "Time (days)", y = "Probability") +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(color = "black", size = 14, face = "bold"),
+    legend.title = element_text(face = "bold", size = 14, color = "black"),
+    legend.text = element_text(color = "black", size = 12),
+  )
+
+distribution_histogram
+```
+
+### Distribution between Delay symptom onset to treatmet regarding to fever status
+
+```{r}
+#| warning: false
+
+fever <- ggplot(data = data_6, aes(x = as.numeric(dif_day_tx_symp))) +
+  geom_histogram(aes(y = after_stat(density),fill = fever_2), 
+                 position = "identity" , color = "black", alpha = 0.3) +
+  geom_density(aes(color = fever_2), lwd = 1) +
+  labs(x = "Difference days (Onset symptoms to treatment)", y = "Probability", 
+       fill = "Fever", color = "Fever") +
+  theme_bw() +
+  theme(axis.title = element_text(face = "bold"),
+        legend.title = element_text(face = "bold")) +
+  scale_x_continuous(n.breaks = 15, transform = "log10", 
+                     labels = function(x) format(round(x), nsmall = 0))
+
+fever
+```
+
+## HIV histogram: Delay symptom onset to treatmet regarding to HIV status
+
+```{r}
+h_hiv <- ggplot(data = data_6, aes(x = as.numeric(dif_day_tx_symp))) +
+  geom_histogram(aes(y = after_stat(density), fill = hiv_2), position = "identity", color = "black", alpha = 0.3) +
+  geom_density(aes(color = hiv_2), lwd = 1) +
+  labs(x = "Difference days (Onset symptoms to treatment)", y = "Density", fill = "HIV", color = "HIV") +
+  theme_bw() +
+  theme(axis.title = element_text(face = "bold"),
+        legend.title = element_text(face = "bold")) +
+  scale_x_continuous(n.breaks = 15, transform = "log10", 
+                     labels = function(x) format(round(x), nsmall = 0))
+
+h_hiv
+```
+
+### Type of case identificated
+
+```{r}
+id_type <- ggplot(data = data_6, aes(x = as.numeric(dif_day_tx_symp))) +
+  geom_histogram(aes(y = after_stat(density),fill = identification_case), 
+                 position = "identity" , color = "black", alpha = 0.3) +
+  geom_density(aes(color = identification_case), lwd = 1) +
+  labs(x = "Difference days (Onset symptoms to treatment)", y = "Probability", 
+       fill = "Type case", color = "Type case") +
+  theme_bw() +
+  theme(axis.title = element_text(face = "bold"),
+        legend.title = element_text(face = "bold")) +
+  scale_x_continuous(n.breaks = 15, transform = "log10", 
+                     labels = function(x) format(round(x), nsmall = 0))
+
+id_type
+```
+
+### Distribution delay symptoms onset to treatment regarding gender
+
+```{r}
+#| warning: false
+
+gender <- ggplot(data = data_6 %>% filter(!is.na(gender)), aes(x = as.numeric(dif_day_tx_symp), y = -0.5)) +
+  geom_boxploth (aes(fill = gender), color = "black", alpha = 0.3) +
+  geom_density(aes(x = as.numeric(dif_day_tx_symp), y = after_stat(density), fill = gender), inherit.aes = FALSE) +
+  #geom_point(aes(x = as.numeric(dif_day_tx_symp, y = -0.3))) +
+  facet_grid(gender ~ .) +
+  scale_fill_discrete() +
+  #coord_flip() +
+  labs(x = "Difference days (Onset symptoms to treatment)", y = "Probability", 
+       fill = "Gender") +
+  theme_bw() +
+  theme(axis.title = element_text(face = "bold"),
+        legend.title = element_text(face = "bold")) +
+  scale_x_continuous(n.breaks = 15, transform = "log10", 
+                     labels = function(x) format(round(x), nsmall = 0))
+
+gender
+```
+
+### Pyramid about sex and age VL Brazil between 2007 to 2023
+
+```{r}
+p_1 <- apyramid::age_pyramid(data = data_6 %>% filter(dif_treat_start_symp_cat == "< 30 days"), age_group = age_group_2, 
+                           split_by = gender, proportional = T, show_midpoint = F) +
+  theme_bw() +
+  xlab("Age group") +
+  ylab("Proportion") +
+  labs(fill = "Gender") +
+  theme(legend.position = "bottom", 
+        axis.title = element_text(face = "bold"),
+        legend.title = element_text(face = "bold"))
+
+p_2 <- apyramid::age_pyramid(data = data_6 %>% filter(dif_treat_start_symp_cat == "30-89 days"), age_group = age_group_2, 
+                          split_by = gender, proportional = T, show_midpoint = F) +
+  theme_bw() +
+  xlab("Age group") +
+  ylab("Proportion") +
+  labs(fill = "Gender") +
+  theme(legend.position = "bottom", 
+        axis.title = element_text(face = "bold"),
+        legend.title = element_text(face = "bold"))
+
+p_3 <- apyramid::age_pyramid(data = data_6 %>% filter(dif_treat_start_symp_cat == "90-119 days"), age_group = age_group_2, 
+                             split_by = gender, proportional = T, show_midpoint = F) +
+  theme_bw() +
+  xlab("Age group") +
+  ylab("Proportion") +
+  labs(fill = "Gender") +
+  theme(legend.position = "bottom", 
+        axis.title = element_text(face = "bold"),
+        legend.title = element_text(face = "bold"))
+
+
+p_4 <- apyramid::age_pyramid(data = data_6 %>% filter(dif_treat_start_symp_cat == "> 120 days"), age_group = age_group_2, 
+                             split_by = gender, proportional = T, show_midpoint = F) +
+  theme_bw() +
+  xlab("Age group") +
+  ylab("Proportion") +
+  labs(fill = "Gender") +
+  theme(legend.position = "bottom", 
+        axis.title = element_text(face = "bold"),
+        legend.title = element_text(face = "bold"))
+
+
+ap <- ggarrange(p_1 + rremove("ylab") + rremove("xlab") ,
+                p_2 + rremove("ylab") + rremove("xlab") + theme(axis.text.y = element_blank()), 
+                p_3 + rremove("ylab") + rremove("xlab"), 
+                p_4 + rremove("ylab") + rremove("xlab") + theme(axis.text.y = element_blank()), 
+                ncol = 2, nrow = 2, common.legend = T, 
+                labels = c("<30 days","30–89 days", "90–119 days", "≥120 days"),
+                legend = "right", align = "hv",
+                label.x = 0.03,    
+                label.y = 0.99, 
+                font.label = list(size = 10, color = "black", face = "bold", family = NULL, position = "lef"))
+
+ap_annotated <- annotate_figure(ap, bottom = textGrob("Proportion", gp = gpar(cex = 1.3, fontface = "bold")),
+  left = textGrob("Age group", rot = 90, vjust = 0.3, gp = gpar(cex = 1.3, fontface = "bold")))
+
+ap_annotated 
+```
+
+### Distribution Federative unitsa according with the delay between symptoms to treatment
+
+```{r}
+map_brazil <- read_municipality(year = 2022) #### Brazil map level municipality
+map_brazil <- map_brazil %>% 
+  mutate(code_muni_2 = substr(code_muni, 1, 6)) %>% 
+  mutate(code_muni_2 = as.double(code_muni_2))
+
+code_uf <- map_brazil %>% ### selection specific variables in federative units
+  select(code_state, name_state) %>% 
+  as.data.frame() %>% 
+  select(-c(geom)) %>% 
+  unique()
+
+data_6 <- left_join(data_6, select(code_uf, code_state, name_state),
+                          by = c("federative_unit" = "code_state"))
+
+q25 <- quantile(as.numeric(data_6$dif_day_tx_symp), 0.25, na.rm = TRUE)
+q50 <- quantile(as.numeric(data_6$dif_day_tx_symp), 0.50, na.rm = TRUE)
+q75 <- quantile(as.numeric(data_6$dif_day_tx_symp), 0.75, na.rm = TRUE)
+q95 <- quantile(as.numeric(data_6$dif_day_tx_symp), 0.95, na.rm = TRUE)
+
+quant_df <- data.frame(
+  Quantile = c("Q25 = 12", "Q50 = 27", "Q75 = 60", "Q95 = 165"),
+  value = c(q25, q50, q75, q95))
+
+ggplot(data = data_6, aes(x = name_state, y = dif_day_tx_symp)) + 
+  geom_boxplot() +
+  geom_hline(data = quant_df, aes(yintercept = value, color = Quantile), linetype = "dashed", size = 1) +
+  theme_bw() +
+  theme(
+    axis.text = element_text(angle = 90)) +
+  labs(x = "Name of state", y = "Difference days (Symptoms onset to treatment)", 
+       color = "Quantile") +
+  theme(
+    legend.position = "bottom",
+    axis.text = element_text(color = "black", size = 10),
+    axis.title = element_text(color = "black", size = 14, face = "bold"),
+    legend.title = element_text(face = "bold", size = 14, color = "black"),
+    legend.text = element_text(color = "black", size = 12),
+  ) +
+  scale_y_continuous(n.breaks = 20) +
+  scale_color_manual(values = c("Q25 = 12" = "seagreen", "Q50 = 27" = "dodgerblue3", 
+                                "Q75 = 60" = "brown3", "Q95 = 165" = "orange3")) 
+
+
+
+```
+
+### Distribution delay onsent symptoms to treatment according with federative unite
+
+```{r}
+map_uf_shp <- read_sf(here("BR_UF_2023", "BR_UF_2023.shp")) %>% 
+  clean_names()
+map_uf <- as.data.frame(read_state(year = 2020))
+
+data_ost <- data_6 %>% 
+  mutate(year_3 = case_when(year >= 2007 & year <= 2009 ~ "2007 - 2009",
+                            year >= 2010 & year <= 2014 ~ "2010 - 2014",
+                            year >= 2015 & year <= 2018 ~ "2015 - 2018",
+                            year >= 2019 & year <= 2023 ~ "2019 - 2023",
+                            TRUE ~ NA)) %>% 
+  group_by(federative_unit, year_3) %>% 
+  summarise(median = median(dif_day_tx_symp), .groups = "drop")
+
+years <- c("2007 - 2009", "2010 - 2014", "2015 - 2018", "2019 - 2023")
+
+map_uf_shp_2 <- map_uf_shp %>% 
+  slice(rep(1:n(), each = length(years))) %>%
+  mutate(year = rep(years, times = nrow(map_uf_shp))) %>% 
+  rename("year_3" = year,
+         "federative_unit" = cd_uf) %>% 
+  mutate(federative_unit = as.double(federative_unit))
+
+
+map_uf_shp_3 <- full_join(map_uf_shp_2, select(data_ost, federative_unit, median, year_3)) %>% 
+  mutate(median = replace_na(median, 0)) %>% 
+  st_as_sf()
+
+#breaks <- c(30, 60, 120, 150, 180, 200)
+
+ggplot(map_uf_shp_3) +
+  geom_sf(aes(fill = median), color = "white") +
+  labs(fill = "Median delay") +
+  ggtitle("Visceral Leishmaniasis Brazil (Delay symptoms onset to treatment)") +
+  scale_fill_viridis_c(limits = c(1, 200), option = "viridis", 
+                       na.value = "lightgray",) +
+  theme_minimal() +
+  theme(legend.position = "right",
+        legend.title.position = "bottom") +
+  facet_wrap(~year_3, nrow = 2) 
+```
+
+### Distribution delay symptoms onset to diagnosis according with federative unite
+
+```{r}
+data_osd <- data_6 %>% 
+  mutate(year_3 = case_when(year >= 2007 & year <= 2009 ~ "2007 - 2009",
+                            year >= 2010 & year <= 2014 ~ "2010 - 2014",
+                            year >= 2015 & year <= 2018 ~ "2015 - 2018",
+                            year >= 2019 & year <= 2023 ~ "2019 - 2023",
+                            TRUE ~ NA)) %>% 
+  group_by(federative_unit, year_3) %>% 
+  summarise(median = median(dif_day_dx_symp), .groups = "drop")
+
+years <- c("2007 - 2009", "2010 - 2014", "2015 - 2018", "2019 - 2023")
+
+map_uf_shp_4 <- full_join(map_uf_shp_2, select(data_osd, federative_unit, median, year_3)) %>% 
+  mutate(median = replace_na(median, 0)) %>% 
+  st_as_sf()
+
+#breaks <- c(30, 60, 120, 150, 180, 200)
+
+ggplot(map_uf_shp_4) +
+  geom_sf(aes(fill = median), color = "white") +
+  labs(fill = "Median delay") +
+  ggtitle("Visceral Leishmaniasis Brazil (Delay symptoms onset to treatment)") +
+  scale_fill_viridis_c(limits = c(1, 200), option = "viridis", 
+                       na.value = "lightgray",) +
+  theme_minimal() +
+  theme(legend.position = "right",
+        legend.title.position = "bottom") +
+  facet_wrap(~year_3, nrow = 2) 
+```
+
+## Survival analysis: Evaluating relapse and lethally
+
+### Behaviour lethality according with delay symptom onset to tretament
+
+```{r}
+lethality_risk <- survfit(Surv(dif_treat_outcome, death_vl) ~ 1, data = data_6) 
+
+gm <- ggsurvplot(fit = lethality_risk,
+                 data = data_6,
+                 ggtheme = theme_bw(),
+                 tables.theme = theme_cleantable(),
+                 ylim = c(0.8, 1),
+                 font.x = c(15, "bold"), font.y = c(15, "bold"),
+                # xlab = "days (delay symptoms onset to treatment)",
+                 legend = c("bottom"), legend.title = "Survival regarding the delay symptoms onset to treatment")
+
+print(gm)
+```
+
+```{r}
+
+delay_risk <- survfit(Surv(dif_treat_outcome, death_vl) ~ dif_treat_start_symp_cat, data = data_6) 
+
+gdt <- ggsurvplot(fit = delay_risk,
+                 data = data_6,
+                 ggtheme = theme_bw(),
+                 tables.theme = theme_cleantable(),
+                 ylim = c(0.8, 1),
+                 font.x = c(15, "bold"), font.y = c(15, "bold"),
+                # xlab = "days (delay symptoms onset to treatment)",
+                 legend = c("bottom"), legend.title = "Survival regarding the delay symptoms onset to treatment")
+
+print(gdt)
+```
+
+```{r}
+lethality_risk <- survfit(Surv(dif_treat_outcome, death_vl) ~ 1, data = data_6) 
+
+gm <- ggsurvplot(fit = lethality_risk,
+                 data = data_6,
+                 ggtheme = theme_bw(),
+                 tables.theme = theme_cleantable(),
+                 ylim = c(0.8, 1),
+                 font.x = c(15, "bold"), font.y = c(15, "bold"),
+                # xlab = "days (delay symptoms onset to treatment)",
+                 legend = c("bottom"), legend.title = "Survival regarding the delay symptoms onset to treatment")
+
+print(gm)
+```
+
+### Relapse evaluation according with delay symptoms onset to treatment
+
+```{r}
+
+relapse_risk <- survfit(Surv(dif_day_tx_symp, relapse) ~ 1, data = data_6) 
+
+gr <- ggsurvplot(fit = relapse_risk,
+                 data = data_6,
+                 ggtheme = theme_bw(),
+                 tables.theme = theme_cleantable(),
+                 ylim = c(0.75, 1),
+                 xlim = c(0, 365),
+                 font.x = c(15, "bold"), font.y = c(15, "bold"),
+                 xlab = "days (delay symptoms onset to treatment)",
+                 legend = c("bottom"), legend.title = "Survival regarding the delay symptoms onset to treatment")
+
+
+print(gr)
+```
+
+### Relationship age group and death by VL evaluation according with delay symptoms onset to treatment
+
+```{r}
+
+age_risk <- survfit(Surv(dif_day_tx_symp, death_vl) ~ age_group_3, data = data_6) 
+
+gad <- ggsurvplot(fit = age_risk,
+                 data = data_6,
+                 ggtheme = theme_bw(),
+                 tables.theme = theme_cleantable(),
+                 ylim = c(0.0, 1),
+                 xlim = c(0, 365),
+                 font.x = c(15, "bold"), font.y = c(15, "bold"),
+                 xlab = "days (delay symptoms onset to treatment)",
+                 legend = c("bottom"), legend.title = "Age group",
+                 legen.position.title = "bottom")
+
+
+print(gad)
+```
+
+### Relationship age group and death by VL evaluation according with delay symptoms onset to treatment
+
+```{r}
+
+age_relapse_risk <- survfit(Surv(dif_day_tx_symp, relapse) ~ age_group_3, data = data_6) 
+
+gar <- ggsurvplot(fit = age_relapse_risk,
+                 data = data_6,
+                 ggtheme = theme_bw(),
+                 tables.theme = theme_cleantable(),
+                 ylim = c(0.0, 1),
+                 xlim = c(0, 365),
+                 font.x = c(15, "bold"), font.y = c(15, "bold"),
+                 xlab = "days (delay symptoms onset to treatment)",
+                 legend = c("bottom"), legend.title = "Age group",
+                 legen.position.title = "bottom")
+
+
+print(gar)
+```
+
+### Relationship age group and death by VL evaluation according with delay symptoms onset to treatment
+
+```{r}
+
+treat_risk <- survfit(Surv(dif_day_tx_symp, death_vl) ~ name_tx, data = data_6) 
+
+gt <- ggsurvplot(fit = treat_risk,
+                 data = data_6,
+                 ggtheme = theme_bw(),
+                 tables.theme = theme_cleantable(),
+                 ylim = c(0.0, 1),
+                 xlim = c(0, 365),
+                 font.x = c(15, "bold"), font.y = c(15, "bold"),
+                 xlab = "days (delay symptoms onset to treatment)",
+                 legend = c("bottom"), legend.title = "Treatment",
+                 legen.position.title = "bottom")
+
+
+print(gt)
+```

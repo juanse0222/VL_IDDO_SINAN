@@ -1,0 +1,23 @@
+# R / RStudio
+.Rhistory
+.RData
+.Rproj.user
+.Ruserdata
+.Rproj
+
+# data - DO NOT publish
+data base and clean/data_raw/
+SDTM/
+MAPPER/
+WWARNset/
+base_de_datos_trabajo/
+*.csv
+#*.xlsx
+*.rds
+
+# OS files
+.DS_Store
+
+# others
+hyperparasitimia_malaria_project.Rproj
+README.html
