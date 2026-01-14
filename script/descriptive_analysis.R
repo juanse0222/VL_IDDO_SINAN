@@ -131,7 +131,8 @@ level_orders <- list(
     "Antimonial Pentavalent",
     "Amphotericin B deoxycholate",
     "Liposomal amphotericin B",
-    "Others")
+    "Others"),
+  evolution = c("Cure", "Death for VL", "Death for any-cause", "Neglect", "Transferred", NA)
   #evolution = c("Cure", "Death", "Unknown")   # adjust to your actual labels
 )
 

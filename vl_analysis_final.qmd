@@ -1,0 +1,456 @@
+---
+title: "VL Brazil anaylisis of the risk factors associated with delay symptoms to treatment"
+author: "Juan Sebastian Hurtado Zapata"
+format: 
+  html:
+    smooth-scroll: true
+    code-fold: false
+    toc: true
+    toc-location: right
+    theme: Lumen
+    embed-resources: true
+execute: 
+  echo: false
+  warning: false
+css: styles.css
+editor: visual
+---
+
+
+```{r}
+pacman::p_load(flextable, tidyverse, janitor, epikit, gtsummary, rio, 
+               survival, survminer, sf, here, incidence, ggstance, ggbeeswarm, 
+               grid, ggsurvfit, geobr, rms)
+##############################################################################################################################################
+data_6 <- rio::import(here("data base and clean", "data_6.rda"))
+
+data_6 <- data_6 %>% 
+  mutate(complication = if_else(hemorrhagic_phenomena == 1 | edema == 1, "Yes", "No"))
+
+### Adjusting variables 
+data_6 <- data_6 %>%
+  mutate(age_group_2 = case_when(age_years >= 0 & age_years <= 1 ~ "0-1",
+                                 age_years > 1 & age_years <= 5 ~ "1-5",
+                                 age_years > 5 & age_years <= 15 ~ "6-15",
+                                 age_years > 15 & age_years <= 50 ~ "16-50",
+                                 age_years > 50  ~ ">50",
+                                 TRUE ~ NA),
+         age_group_3 = case_when(age_years >= 0 & age_years <= 1 ~ "0-1",
+                                 age_years >= 1 & age_years <= 2 ~ "1-2",
+                                 age_years >= 2 & age_years <= 3 ~ "2-3",
+                                 age_years >= 3 & age_years <= 5 ~ "3-5",
+                                 age_years >= 5 & age_years <= 15 ~ "5-15",
+                                 age_years >= 15 & age_years <= 20 ~ "15-20",
+                                 age_years >= 20 & age_years <= 40 ~ "20-40",
+                                 age_years >= 40 & age_years <= 60 ~ "40-60",
+                                 age_years > 60  ~ ">60",
+                                 TRUE ~ NA), 
+         year = lubridate::year(clean_date_of_notification),
+         year_period = case_when(str_detect(year, "2007|2008|2009") ~ "2007-2009",
+                                 str_detect(year, "2010|2011|2012|2013|2014") ~ "2010-2014",
+                                 str_detect(year, "2015|2016|2017|2018") ~ "2015-2018",
+                                 str_detect(year, "2019|2020|2021|2022|2023") ~ "2019-2023",
+                                 TRUE ~ NA),
+         race_2 = case_when(race == 1 ~ "White",
+                            race == 2 ~ "Afro-descendants",
+                            race == 3 ~ "Yellow",
+                            race == 4 ~ "Brown",
+                            race == 5 ~ "Indigenous",
+                            race == 9 ~ "Unknown",
+                            TRUE ~ NA),
+         region = case_when(
+             federative_unit %in% c(11, 13, 14, 15, 16, 17) ~ "North",
+             federative_unit %in% c(21, 22, 23, 24, 25, 26, 27, 28, 29) ~ "Northeast",
+             federative_unit %in% c(31, 32, 33, 35)         ~ "Southeast",
+             federative_unit %in% c(41, 42, 43)             ~ "South",
+             federative_unit %in% c(50, 51, 52, 53)         ~ "Center-West",
+             TRUE                                           ~ NA_character_),
+         age_group_3 = factor(age_group_3, levels = c("0-1", "1-2", "2-3", "3-5", "5-15",
+                                                      "15-20", "20-40", "40-60",
+                                                      ">60")),
+         education_level = factor(education_level, levels = c("Incomplete elementary school",
+                                                              "Complete elementary and incomplete middle school",
+                                                              "Complete middle school and incomplete high school",
+                                                              "Complete high school",
+                                                              "Incomplete university",
+                                                              "Complete university",
+                                                              "N/A")),
+         age_group_2 = factor(age_group_2, levels = c("0-1", "1-5", "6-15", "16-50", ">50")),
+         fever_2 = case_when(fever == 1 ~ "Yes",
+                             fever == 2 ~ "No",
+                             fever == 9 ~ "Unknown",
+                             TRUE ~ NA),
+         edema_2 = case_when(edema == 1 ~ "Yes",
+                             edema == 2 ~ "No",
+                             edema == 9 ~ "Unknown",
+                             TRUE ~ NA),
+         hemorrhagic_phenomena_2 = case_when(hemorrhagic_phenomena == 1 ~ "Yes",
+                             hemorrhagic_phenomena == 2 ~ "No",
+                             hemorrhagic_phenomena == 9 ~ "Unknown",
+                             TRUE ~ NA),
+         hiv_2 = case_when(hiv == 1 ~ "Yes",
+                             hiv == 2 ~ "No",
+                             hiv == 9 ~ "Unknown",
+                             TRUE ~ NA),
+         fever_2 = factor(fever_2, levels = c("No", "Yes", "Unknown")),
+         edema_2 = factor(edema_2, levels = c("No", "Yes", "Unknown")),
+         hemorrhagic_phenomena_2 = factor(hemorrhagic_phenomena_2, levels = c("No", "Yes", "Unknown")),
+         name_tx = case_when(
+             type_of_rx == 1 ~ "Antimonial Pentavalent",
+             type_of_rx == 2 ~ "Amphotericin B deoxycholate",
+             type_of_rx == 3 ~ "Others",                     ### Pentamidine - Others
+             type_of_rx == 4 ~ "Liposomal amphotericin B",
+             type_of_rx == 5 ~ "Others",
+             type_of_rx == 6 ~ NA_character_,                # Nothing - NA (excluded)??
+             TRUE ~ NA_character_)) 
+ # mutate_at(vars(dif_day_dx_symp, dif_day_tx_dx), ~ if_else(. < 0, NA, .))
+```
+
+
+### Figure 1. Distribution of delay between symptom onset to treatment
+```{r}
+ggplot(data = data_6, aes(x = dif_day_tx_symp)) +
+  geom_histogram(colour = "black", fill = "lightblue") +
+  geom_vline(aes(xintercept = median(dif_day_tx_symp[death_vl == 1], na.rm = T)), 
+             linetype = "dashed", color = "brown2") + 
+  geom_vline(aes(xintercept = median(dif_day_tx_symp[death_vl == 0], na.rm = T)), 
+             linetype = "dashed", color = "black") + 
+  scale_x_continuous(transform = "log", n.breaks = 7, 
+                     labels = scales::number_format(accuracy = 2)) +
+  labs(x = "Delay between symptom onset to treatment", y = "Cases") +
+  scale_y_continuous(n.breaks = 10) +
+  theme_classic() +
+  theme(
+    legend.position = "bottom",
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(color = "black", size = 14, face = "bold"),
+    legend.title = element_text(face = "bold", size = 14, color = "black"),
+    legend.text = element_text(color = "black", size = 12))
+```
+
+### Table 1. Baseline characteristics based on median time and range of delay symptom onset to diagnosis, diagnosis to treatment initiation and overall (symptom onset to treatment initation)
+
+```{r}
+### Distribution and direction time between recurrences by characteristics and some variables chosen 
+### variables in the table
+var_order <- c("age_group_2", "gender", "year_period", "region",
+               "education_level", "race_2", "hiv_2", "evolution")
+
+### desired level orders WITH the reference (or desired) first
+level_orders <- list(
+  age_group_2 = c("16-50", "0-1", "1-5", "6-15", ">50"),
+  gender      = c("Female", "Male"),
+  year_period = c("2007-2009", "2010-2014", "2015-2018", "2019-2023"),
+  region      = c("Center-West", "North", "Northeast", "Southeast", "South"),
+  education_level = c(
+    "Incomplete elementary school",
+    "Complete elementary and incomplete middle school",
+    "Complete middle school and incomplete high school",
+    "Complete high school",
+    "Incomplete university",
+    "Complete university",
+    "N/A"
+  ),
+  race_2 = c("Brown", "White", "Afro-descendants", "Yellow", "Indigenous", "Unknown"),
+  hiv_2  = c("No", "Yes", "Unknown"),
+  evolution = c("Cure", "Death for VL", "Death for any-cause", "Neglect", "Transferred", NA)
+)
+
+### Function to make baseline table by delay variables
+median_time_order <- function(vars, level_orders = list(), data = data_6) {
+  map_dfr(vars, function(v) {
+    
+    # subset: valid characteristic and non-missing ts-tt delay > 0
+    d_sub <- data %>%
+      filter(!is.na(.data[[v]]),
+             !is.na(dif_day_tx_symp),
+             dif_day_tx_symp > 0)
+    
+    if (nrow(d_sub) == 0) return(NULL)
+    
+    # enforce factor levels according to level_orders (this sets display/reference)
+    if (!is.null(level_orders[[v]])) {
+      d_sub[[v]] <- factor(d_sub[[v]], levels = level_orders[[v]])
+    } else {
+      d_sub[[v]] <- factor(d_sub[[v]])
+    }
+    
+    # denominator for n/N (here: all rows in data_6, as you had it)
+    denom <- nrow(data_6)
+    
+    # summary: n/N, medians [IQR] and ranges for 3 time intervals
+    df_sum <- d_sub %>%
+      group_by(.data[[v]]) %>%
+      summarise(
+        n = paste0(n(), "/", denom),
+        
+        median_1 = paste0(
+          round(median(dif_day_dx_symp, na.rm = TRUE), 0), " [",
+          round(quantile(dif_day_dx_symp, 0.25, na.rm = TRUE), 0), "-",
+          round(quantile(dif_day_dx_symp, 0.75, na.rm = TRUE), 0), "]"
+        ),
+        range_1 = paste0(
+          min(dif_day_dx_symp, na.rm = TRUE), "-",
+          max(dif_day_dx_symp, na.rm = TRUE)
+        ),
+        
+        median_2 = paste0(
+          round(median(dif_day_tx_dx, na.rm = TRUE), 0), " [",
+          round(quantile(dif_day_tx_dx, 0.25, na.rm = TRUE), 0), "-",
+          round(quantile(dif_day_tx_dx, 0.75, na.rm = TRUE), 0), "]"
+        ),
+        range_2 = paste0(
+          min(dif_day_tx_dx, na.rm = TRUE), "-",
+          max(dif_day_tx_dx, na.rm = TRUE)
+        ),
+        
+        median_3 = paste0(
+          round(median(dif_day_tx_symp, na.rm = TRUE), 0), " [",
+          round(quantile(dif_day_tx_symp, 0.25, na.rm = TRUE), 0), "-",
+          round(quantile(dif_day_tx_symp, 0.75, na.rm = TRUE), 0), "]"
+        ),
+        range_3 = paste0(
+          min(dif_day_tx_symp, na.rm = TRUE), "-",
+          max(dif_day_tx_symp, na.rm = TRUE)
+        ),
+        
+        .groups = "drop"
+      ) %>%
+      mutate(
+        variable = v,
+        level    = as.character(.data[[v]])
+      ) %>%
+      select(variable, level, n,
+             median_1, range_1,
+             median_2, range_2,
+             median_3, range_3)
+    
+    # apply desired level order to the summarised table
+    if (!is.null(level_orders[[v]])) {
+      df_sum <- df_sum %>% mutate(level = factor(level, levels = level_orders[[v]]))
+    } else {
+      df_sum <- df_sum %>% mutate(level = factor(level))
+    }
+    
+    df_sum
+  }) %>%
+    mutate(variable = factor(variable, levels = var_order)) %>%
+    arrange(variable, level)
+}
+
+# run
+vars <- var_order
+dif_table <- median_time_order(vars, level_orders, data = data_6)
+```
+
+```{r}
+border_line <- officer::fp_border(color = "black", width = 1.38) 
+
+tab_1 <- dif_table %>% 
+  mutate(
+    variable = recode(
+      variable,
+      age_group_2     = "Age group",
+      gender          = "Gender",
+      year_period     = "Period (year)",
+      region          = "Region",
+      education_level = "Education level",
+      race_2          = "Race/colour",
+      hiv_2           = "HIV status",
+      evolution       = "Evolution"
+    )
+  ) %>% 
+  rename(
+    "Characteristic"              = variable,
+    "Level"                       = level,
+    "n/N"                         = n,
+    "Median time ts-td (days)"    = median_1,
+    "Range ts-td (days)"          = range_1,
+    "Median time td-tt (days)"    = median_2,
+    "Range td-tt (days)"          = range_2,
+    "Median time ts-tt (days)"    = median_3,
+    "Range ts-tt (days)"          = range_3
+  ) %>% 
+  flextable() %>% 
+  # group rows (you may need to adjust indices if your data changes)
+  merge_at(j = 1, i = 1:5,  part = "body") %>% 
+  merge_at(j = 1, i = 6:7,  part = "body") %>% 
+  merge_at(j = 1, i = 8:11, part = "body") %>% 
+  merge_at(j = 1, i = 12:16,part = "body") %>% 
+  merge_at(j = 1, i = 17:23,part = "body") %>% 
+  merge_at(j = 1, i = 24:28,part = "body") %>% 
+  merge_at(j = 1, i = 29:34,part = "body") %>% 
+  merge_at(j = 1, i = 35:37,part = "body") %>% 
+ # merge_at(j = 1, i = 38:42,part = "body") %>% 
+  hline(i = c(5, 7, 12, 11, 16, 23, 28, 31, 37), part = "body", border = border_line) %>% 
+  # center numeric / formatted columns
+  align(j = 3:9, part = "body",   align = "center") %>% 
+  align(j = 3:9, part = "header", align = "center") %>% 
+  # bold characteristic column & header
+  bold(j = 1, part = "all") %>% 
+  bold(i = 1, part = "header") %>% 
+  autofit() 
+
+tab_1
+
+# save
+tab_1 %>% 
+  save_as_docx(path = here("figures and tables", "table_1.docx"))
+```
+
+
+```{r}
+### Function to make the table 1 - Baseline characteristics based on delay treatment initiation
+median_time_glm_ordered <- function(vars, level_orders = list(), data = data_6) {
+  map_dfr(vars, function(v) {
+    
+    # subset: valid x and dif_day_tx_symp > 0 for log
+    d_sub <- data %>%
+      filter(!is.na(.data[[v]]),
+             !is.na(dif_day_tx_symp),
+             dif_day_tx_symp > 0) %>% 
+      mutate(log_delay = log(dif_day_tx_symp))
+    
+    if (nrow(d_sub) == 0) return(NULL)
+    
+    # enforce factor levels according to level_orders (this sets the reference)
+    if (!is.null(level_orders[[v]])) {
+      d_sub[[v]] <- factor(d_sub[[v]], levels = level_orders[[v]])
+    } else {
+      d_sub[[v]] <- factor(d_sub[[v]])
+    }
+    
+    # summary: n, median, range
+    df_sum <- d_sub %>%
+      group_by(.data[[v]]) %>%
+      summarise(
+        n      = n(),
+        median = paste0(round(median(dif_day_tx_symp, na.rm = TRUE), 0)," ", "[",
+                        round(quantile(dif_day_tx_symp, 0.25, na.rm = TRUE), 0), "-",
+                        round(quantile(dif_day_tx_symp, 0.75, na.rm = TRUE), 0), "]"),
+        range  = paste0(min(dif_day_tx_symp, na.rm = TRUE), "-",
+                        max(dif_day_tx_symp, na.rm = TRUE)),
+        .groups = "drop"
+      ) %>%
+      mutate(
+        variable = v,
+        level    = as.character(.data[[v]])
+      ) %>%
+      select(variable, level, n, median, range)
+    
+    # GLM: log(dif_day_tx_symp) ~ v
+    form <- as.formula(paste("log_delay ~", v))
+    fit  <- glm(form, data = d_sub, family = gaussian())
+    
+    sm <- summary(fit)$coefficients
+    coef_df <- as.data.frame(sm)
+    coef_df$term <- rownames(coef_df)
+    
+    # reference = first level (given by level_orders)
+    base_level <- levels(d_sub[[v]])[1]
+    
+    base_row <- data.frame(
+      level    = base_level,
+      gm_ratio = 1,
+      gm_lower = 1,
+      gm_upper = 1
+    )
+    
+    others <- subset(coef_df, term != "(Intercept)")
+    
+    if (nrow(others) > 0) {
+      others_df <- data.frame(
+        level    = sub(paste0("^", v), "", others$term),
+        gm_ratio = round(exp(others$Estimate), 3),
+        gm_lower = round(exp(others$Estimate - 1.96 * others$`Std. Error`), 3),
+        gm_upper = round(exp(others$Estimate + 1.96 * others$`Std. Error`), 3)
+      )
+      glm_tbl <- rbind(base_row, others_df)
+    } else {
+      glm_tbl <- base_row
+ }
+    
+    # join summary + GLM CI
+    df <- df_sum %>%
+      left_join(glm_tbl, by = "level")
+    
+    # order levels for display too
+    if (!is.null(level_orders[[v]])) {
+      df <- df %>% mutate(level = factor(level, levels = level_orders[[v]]))
+    } else {
+      df <- df %>% mutate(level = factor(level))
+    }
+    
+    df
+  }) %>%
+    mutate(variable = factor(variable, levels = var_order)) %>%
+    arrange(variable, level)
+}
+
+
+vars <- var_order
+
+dif_table <- median_time_glm_ordered(vars, level_orders, data = data_6)
+
+dif_table <- dif_table %>% 
+  mutate(
+    is_ref = gm_ratio == 1 & gm_lower == 1 & gm_upper == 1,
+    gm_ratio_chr = ifelse(is_ref, "Reference",
+                          sprintf("%.2f", gm_ratio)),
+    gm_lower_chr = ifelse(is_ref, "-",
+                          sprintf("%.2f", gm_lower)),
+    gm_upper_chr = ifelse(is_ref, "-",
+                          sprintf("%.2f", gm_upper))
+  ) %>% 
+  mutate(gm_ratio_chr = paste0(gm_ratio_chr, " ", "[", gm_lower_chr,
+                           "-", gm_upper_chr, "]")) %>% 
+  select(-gm_lower_chr, -gm_upper_chr, -gm_lower, -gm_upper, 
+         -is_ref, -gm_ratio) 
+
+border_line = officer::fp_border(color = "black", width = 1.38) 
+flextable(dif_table)
+
+tab_1 <- dif_table %>% 
+  mutate(
+    variable = recode(
+      variable,
+      age_group_2     = "Age group",
+      gender          = "Gender",
+      year_period     = "Period (year)",
+      region          = "Region",
+      education_level = "Education level",
+      race_2          = "Race/colour",
+      hiv_2           = "HIV status",
+      name_tx         = "Treatment",
+      evolution       = "Evolution"
+    )
+  ) %>% 
+  rename(
+    "Characteristic"          = variable,
+    "Level"                   = level,
+    "N"                       = n,
+    "Median time (days)"      = median,
+    "Range (days)"            = range,
+    "GLM (geometric mean), [95% CI]"    = gm_ratio_chr
+  ) %>% 
+  flextable() %>% 
+  merge_at(j = 1, i = 1:5, part = "body") %>% 
+  merge_at(j = 1, i = 6:7, part = "body") %>% 
+  merge_at(j = 1, i = 8:12, part = "body") %>% 
+  merge_at(j = 1, i = 13:19, part = "body") %>% 
+  merge_at(j = 1, i = 20:25, part = "body") %>% 
+  merge_at(j = 1, i = 26:28, part = "body") %>% 
+  merge_at(j = 1, i = 29:31, part = "body") %>% 
+  merge_at(j = 1, i = 32:36, part = "body") %>% 
+  hline(i = c(5, 7, 12, 19, 25, 28, 31), part = "body", border = border_line) %>% 
+  align(j = 3:6, part = "body", align = "center") %>% 
+  align(j = 3:6, part = "header", align = "center") %>% 
+  bold(j = 1, part = "all") %>% 
+  bold(i = 1, part = "header") %>% 
+  align(j = 3:5, part = "all", align = "center") %>% 
+  autofit() 
+
+tab_1 %>% 
+  save_as_docx(path = here("figures and tables", "table_1.docx"))
+```
+

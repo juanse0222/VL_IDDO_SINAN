@@ -3,7 +3,7 @@ pacman::p_load(flextable, tidyverse, janitor, epikit, gtsummary, rio,
 ############################################################################################################################
 
 ### Import dataset by SINAN 
-data <- import("data/combined_dataset_after_drop.csv") 
+data <- import("data base and clean/data_raw/combined_dataset_after_drop.csv") 
 data <- data %>% 
   #filter(!is.na(age_years)) %>% 
   mutate(year_of_notification = as.Date(year_of_notification)) %>% 
@@ -31,18 +31,21 @@ data <- data %>%
 
 ### Reviewing dates and days between onset symptoms and start treatment. 
 data_2 <- data %>%
-  mutate(dif_day_tx_symp = as.Date(clean_date_of_rx_started) - as.Date(clean_date_symptoms_started),
-         dif_day_dx_symp = as.Date(clean_date_of_investigation) - as.Date(clean_date_symptoms_started),
-         dif_day_tx_dx = as.Date(clean_date_of_rx_started) - as.Date(clean_date_of_investigation),
+  mutate(dif_day_tx_symp = as.Date(date_of_rx_started) - as.Date(date_symptoms_started),
+         dif_day_dx_symp = as.Date(date_of_investigation) - as.Date(date_symptoms_started),
+         dif_day_tx_dx = as.Date(date_of_rx_started) - as.Date(date_of_investigation),
          death = if_else(!is.na(date_of_death), 1, 0),
          cure = if_else(evolution_of_cases == 1, 1, 0),
          death_vl = if_else(evolution_of_cases == 3, 1, 0)) %>%
-  mutate(clean_date_of_investigation = if_else(dif_day_dx_symp <0, 
-                                               make_date(year(clean_date_of_investigation), 
-                                                         day(clean_date_of_investigation), 
-                                                         month(clean_date_of_investigation)), 
-                                               as.Date(clean_date_of_investigation))) ## Adjust date of investigation for working forward with it.
+  mutate(date_of_investigation = if_else(dif_day_dx_symp <0,
+                                         make_date(year(date_of_investigation), 
+                                                   day(date_of_investigation), 
+                                                   month(date_of_investigation)),
+                                         as.Date(date_of_investigation))) ## Adjust date of investigation for working forward with it.
 
+
+data_2 %>% 
+  tabyl(dif_day_dx_symp)
 
 ### Classification criteria: Only patients that have parasitological or molecular confirmation 
 
@@ -59,9 +62,12 @@ data_3 %>%
   summarise(n = sum(name_tx %in% c(NA, "Nothing")))
 
 data_3 %>%
-  mutate(equal = if_else(clean_date_symptoms_started == clean_date_of_rx_started,
+  mutate(equal = if_else(date_symptoms_started == date_of_rx_started,
                          1L, 0L)) %>% 
   summarise(n = sum(equal, na.rm = T))
+
+data_3 %>% 
+  tabyl(dif_day_dx_symp)
 
 data_4 <- data_3 %>% 
   filter(!name_tx %in% c(NA, "Nothing")) %>% ### Delete registers without treatment's name 
@@ -188,9 +194,9 @@ data_6 <- data_5 %>%
                                               dif_day_tx_symp >= 120  ~ "≥120 days",
                                               TRUE ~ NA),
          dif_treat_start_symp_cat = factor(dif_treat_start_symp_cat, levels = c("< 30 days", "30-89 days", "90-119 days", "≥120 days")),
-         dif_treat_death = as.numeric(date_of_death) - as.numeric(clean_date_of_rx_started),
+         dif_treat_death = as.numeric(date_of_death) - as.numeric(date_of_rx_started),
          day_of_outcome = if_else(is.na(date_of_death), date_of_close_out, date_of_death),
-         dif_treat_outcome = as.numeric(day_of_outcome) - as.numeric(clean_date_of_rx_started),
+         dif_treat_outcome = as.numeric(day_of_outcome) - as.numeric(date_of_rx_started),
          dif_day_tx_symp = as.numeric(dif_day_tx_symp)
   ) %>% 
   filter(!dif_treat_outcome <0 & dif_treat_outcome < 366) 
@@ -881,3 +887,15 @@ gstx_relapse_2
 
 
 ###############################################################################################################
+
+data_6 %>% 
+  tabyl(dif_day_dx_symp, dif_day_tx_dx)
+
+min(data_6$dif_day_dx_symp, na.rm = T)
+data_6 %>% 
+  mutate(rev = if_else(dif_day_tx_dx < 0, 1, 0)) %>% 
+  summarise(n = sum(rev, na.rm = T)) %>% 
+  ungroup()
+
+data_6 %>% 
+  tabyl(evolution)
