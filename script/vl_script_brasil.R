@@ -41,11 +41,72 @@ data_2 <- data %>%
                                          make_date(year(date_of_investigation), 
                                                    day(date_of_investigation), 
                                                    month(date_of_investigation)),
-                                         as.Date(date_of_investigation))) ## Adjust date of investigation for working forward with it.
+                                         as.Date(date_of_investigation)),
+         dif_day_dx_symp = date_of_investigation - as.Date(date_symptoms_started)) ## Adjust date of investigation for working forward with it.
 
 
-data_2 %>% 
-  tabyl(dif_day_dx_symp)
+data_2 <- data_2 %>% 
+  filter(!dif_day_tx_dx < 0|!dif_day_tx_symp < 0)
+######################################################################################################################################
+
+data <- data %>%
+  mutate(across(c(year_of_notification, date_of_notification, date_symptoms_started,
+      date_of_investigation, date_of_rx_started, date_of_death), as.Date)) %>%
+  
+  # 2) Keep your treatment labels
+  mutate(
+    name_tx = case_when(
+      type_of_rx == 1 ~ "Antimonial Pentavalent",
+      type_of_rx == 2 ~ "Amphotericin B deoxycholate",
+      type_of_rx == 3 ~ "Pentamidine",
+      type_of_rx == 4 ~ "Liposomal amphotericin B",
+      type_of_rx == 5 ~ "Others",
+      type_of_rx == 6 ~ "Nothing",
+      TRUE ~ NA_character_),
+    death    = if_else(!is.na(date_of_death), 1L, 0L),
+    cure     = if_else(evolution_of_cases == 1, 1L, 0L),
+    death_vl = if_else(evolution_of_cases == 3, 1L, 0L)) %>%
+  
+  # 3) Compute raw diffs once
+  mutate(
+    dif_day_tx_symp = as.numeric(date_of_rx_started - date_symptoms_started),
+    dif_day_dx_symp = as.numeric(date_of_investigation - date_symptoms_started),
+    dif_day_tx_dx   = as.numeric(date_of_rx_started - date_of_investigation)) %>%
+  
+  # 4) Fix investigation date (your swap + validity rules) for only “problem rows”
+  mutate(
+    inv_swapped = make_date(year(date_of_investigation),
+                            day(date_of_investigation),
+                            month(date_of_investigation)),
+    
+    inv_candidate = case_when(
+      (dif_day_dx_symp < 0) ~ inv_swapped,          # your earlier correction
+      (dif_day_tx_dx < 0)   ~ inv_swapped,          # tx before dx → try swap
+      TRUE                  ~ date_of_investigation
+    ),
+    
+    inv_candidate = coalesce(inv_candidate, date_of_notification),
+    
+    tx_dx   = as.numeric(date_of_rx_started - inv_candidate),
+    dx_symp = as.numeric(inv_candidate - date_symptoms_started),
+    
+    # rule: invalid if tx_dx <0, tx_dx > 50, or dx_symp <0 → use notification date
+    date_of_investigation_2 = if_else(
+      (dif_day_tx_dx < 0 | dif_day_tx_symp < 0),  # only enforce rules on “problem” cases
+      if_else(tx_dx < 0 | tx_dx > 50 | dx_symp < 0,
+              date_of_notification,
+              inv_candidate),
+      date_of_investigation
+    ),
+    
+    # 5) Final diffs based on corrected dx date
+    dif_day_tx_dx_2   = as.numeric(date_of_rx_started - date_of_investigation_2),
+    dif_day_dx_symp_2 = as.numeric(date_of_investigation_2 - date_symptoms_started)
+  ) %>%
+  
+  # 6) Clean helper columns if you don’t want them
+  select(-inv_swapped, -inv_candidate, -tx_dx, -dx_symp)
+
 
 ### Classification criteria: Only patients that have parasitological or molecular confirmation 
 
@@ -109,13 +170,6 @@ data_4 <- data_3 %>%
                                          type_of_cases_at_baseline == 3 ~ "Transferred",
                                          # type_of_cases_at_baseline == 9 ~ "No data",
                                          TRUE ~ NA),
-         treatment_failure = case_when(`treatment failure` == 1 ~ "Amphotericin B",
-                                       `treatment failure` == 2 ~ "Amphotericin B liposomal",
-                                       `treatment failure` == 3 ~ "Other",
-                                       `treatment failure` == 4 ~ "N/A",
-                                       TRUE ~ NA),
-         tx_failure = if_else(!is.na(`treatment failure`), 1, 0),
-         tx_failure_2 = if_else(!is.na(`treatment failure`), TRUE, FALSE),
          death_any_causes = if_else(death == 1, T, F),
          death_vl_2 = if_else(death_vl == 1, T, F),
          evolution = case_when(evolution_of_cases == 1 ~ "Cure",
@@ -171,7 +225,7 @@ abline(h=c(14,30,60,90,120,180), col="red")
 
 
 ### Identify 99% distribution
-quantile(as.numeric(data_4$dif_day_tx_symp), probs = 0.99, na.rm = TRUE)
+quantile(as.numeric(data_4.1$dif_day_tx_symp), probs = 0.99, na.rm = TRUE)
 
 ### adjusting database using 99% distribution
 data_5 <- data_4 %>% 
@@ -251,7 +305,7 @@ data_7 <- data_6 %>%
 
 
 ### Finala database 
-rio::export(data_6, here("data base and clean", "data_6.rda"))
+rio::export(data_6, here("data base and clean", "data_6.rds"))
 rio::export(data_6, here("data base and clean", "data_6.csv"))
 
 ##################################################### Relapse patient #####################################################################

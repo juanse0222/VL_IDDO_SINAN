@@ -11,17 +11,19 @@ library(sjPlot)
 library(splines)
 
 ### Import work database final for running up the model
-data_6 <- import(here("data base and clean", "data_6.rda")) 
+data_6 <- import(here("data base and clean", "data_6.rds")) 
 
 ### Adjusting variables 
 data_6 <- data_6 %>% 
-  #filter(dif_day_tx_symp > 14) %>% 
-  filter(!identification_case %in% c("Releapse", "Transferred")) %>% 
+  mutate(complication = if_else(hemorrhagic_phenomena == 1 | edema == 1, "Yes", "No"))
+
+### Adjusting variables 
+data_6 <- data_6 %>%
   mutate(age_group_2 = case_when(age_years >= 0 & age_years <= 1 ~ "0-1",
-                                 age_years > 1 & age_years <= 5 ~ "1-4",
-                                 age_years > 5 & age_years <= 15 ~ "5-14",
-                                 age_years > 15 & age_years <= 45 ~ "15-45",
-                                 age_years > 45  ~ ">45",
+                                 age_years > 1 & age_years <= 5 ~ "1-5",
+                                 age_years > 5 & age_years <= 15 ~ "6-15",
+                                 age_years > 15 & age_years <= 50 ~ "16-50",
+                                 age_years > 50  ~ ">50",
                                  TRUE ~ NA),
          age_group_3 = case_when(age_years >= 0 & age_years <= 1 ~ "0-1",
                                  age_years >= 1 & age_years <= 2 ~ "1-2",
@@ -33,10 +35,37 @@ data_6 <- data_6 %>%
                                  age_years >= 40 & age_years <= 60 ~ "40-60",
                                  age_years > 60  ~ ">60",
                                  TRUE ~ NA), 
+         year = lubridate::year(clean_date_of_notification),
+         year_period = case_when(str_detect(year, "2007|2008|2009") ~ "2007-2009",
+                                 str_detect(year, "2010|2011|2012|2013|2014") ~ "2010-2014",
+                                 str_detect(year, "2015|2016|2017|2018") ~ "2015-2018",
+                                 str_detect(year, "2019|2020|2021|2022|2023") ~ "2019-2023",
+                                 TRUE ~ NA),
+         race_2 = case_when(race == 1 ~ "White",
+                            race == 2 ~ "Afro-descendants",
+                            race == 3 ~ "Yellow",
+                            race == 4 ~ "Brown",
+                            race == 5 ~ "Indigenous",
+                            race == 9 ~ "Unknown",
+                            TRUE ~ NA),
+         region = case_when(
+           federative_unit %in% c(11, 13, 14, 15, 16, 17) ~ "North",
+           federative_unit %in% c(21, 22, 23, 24, 25, 26, 27, 28, 29) ~ "Northeast",
+           federative_unit %in% c(31, 32, 33, 35)         ~ "Southeast",
+           federative_unit %in% c(41, 42, 43)             ~ "South",
+           federative_unit %in% c(50, 51, 52, 53)         ~ "Center-West",
+           TRUE                                           ~ NA_character_),
          age_group_3 = factor(age_group_3, levels = c("0-1", "1-2", "2-3", "3-5", "5-15",
                                                       "15-20", "20-40", "40-60",
                                                       ">60")),
-         age_group_2 = factor(age_group_2, levels = c("0-1", "1-4", "5-14", "15-45", ">45")),
+         education_level = factor(education_level, levels = c("Incomplete elementary school",
+                                                              "Complete elementary and incomplete middle school",
+                                                              "Complete middle school and incomplete high school",
+                                                              "Complete high school",
+                                                              "Incomplete university",
+                                                              "Complete university",
+                                                              "N/A")),
+         age_group_2 = factor(age_group_2, levels = c("0-1", "1-5", "6-15", "16-50", ">50")),
          fever_2 = case_when(fever == 1 ~ "Yes",
                              fever == 2 ~ "No",
                              fever == 9 ~ "Unknown",
@@ -54,10 +83,17 @@ data_6 <- data_6 %>%
                            hiv == 9 ~ "Unknown",
                            TRUE ~ NA),
          fever_2 = factor(fever_2, levels = c("No", "Yes", "Unknown")),
-         hiv_2 = factor(hiv_2, levels = c("No", "Yes", "Unknown")),
          edema_2 = factor(edema_2, levels = c("No", "Yes", "Unknown")),
-         hemorrhagic_phenomena_2 = factor(hemorrhagic_phenomena_2, levels = c("No", "Yes", "Unknown"))) %>% 
-  filter(dif_day_tx_symp_log <= 5.902633)
+         hemorrhagic_phenomena_2 = factor(hemorrhagic_phenomena_2, levels = c("No", "Yes", "Unknown")),
+         name_tx = case_when(
+           type_of_rx == 1 ~ "Antimonial Pentavalent",
+           type_of_rx == 2 ~ "Amphotericin B deoxycholate",
+           type_of_rx == 3 ~ "Others",                     ### Pentamidine - Others
+           type_of_rx == 4 ~ "Liposomal amphotericin B",
+           type_of_rx == 5 ~ "Others",
+           type_of_rx == 6 ~ NA_character_,                # Nothing - NA (excluded)??
+           TRUE ~ NA_character_)) 
+# mutate_at(vars(dif_day_dx_symp, dif_day_tx_dx), ~ if_else(. < 0, NA, .))
 
 data_ost <- data_6 %>% 
   mutate(year_3 = case_when(year >= 2007 & year <= 2009 ~ "2007 - 2009",
@@ -77,8 +113,11 @@ data_ost_2 <- data_ost %>%
 
 state_100 <- unique(data_ost$federative_unit[data_ost$n < 100])
 
+######################################################################################################################
 
-data_6 <- data_6 %>% 
+### Adjusting and creating new variables to include in the models 
+
+data_7 <- data_6 %>% 
   mutate(edema_2 = if_else(edema == 1, "Yes oedema", "No oedema"),
          edema_2 = factor(edema_2, levels = c("Yes oedema", "No oedema")), 
          severe = if_else(edema == 1 | hemorrhagic_phenomena == 1, "Severe", "No severe"),
@@ -86,7 +125,7 @@ data_6 <- data_6 %>%
          hiv_3 = replace_na(hiv_2 == "Unknown"),
          hiv_2 = factor(hiv_2, levels = c("Yes", "No")))
 
-data_8 <- data_6 %>% 
+data_8 <- data_7 %>% 
   mutate(hiv_2 = if_else(hiv_2 == "Unknown", NA, hiv_2)) %>% 
   mutate(gender_2 = if_else(gender == "Male", 1, 0),
          hiv_3 = case_when(hiv_2 == "Yes" ~ 1, 
@@ -250,11 +289,11 @@ plot(p_hiv3_1)
 ######################################### GLM model ###################################################################
 
 var_order_2 <- c("age_group_2", "gender",  "region",
-                 "education_level", "race_2", "hiv_2", "name_tx")
+                 "education_level", "race_2", "hiv_2")
 
 
 m1 <- glm(death_vl ~ rcs(dif_day_tx_symp, 4) ,
-          family = "binomial", data_6 %>% filter(!hiv_3 == 1))
+          family = "binomial", data_6)
 
 summary(m1)
 

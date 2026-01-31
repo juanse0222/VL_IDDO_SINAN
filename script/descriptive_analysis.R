@@ -1,11 +1,21 @@
 pacman::p_load(flextable, tidyverse, janitor, epikit, gtsummary, rio, 
                survival, survminer, sf, here, incidence, ggstance, ggbeeswarm, 
-               grid, ggsurvfit, geobr, rms)
+               grid, ggsurvfit, geobr, rms, patchwork)
+
+devtools::install_github("danicat/read.dbc")
+
+library(read.dbc)
+
+
 ##########################################################################################################################
 ### Descriptive analysis. 
-data_6 <- import(here("data base and clean", "data_6.rda")) 
+data_6 <- import(here("data base and clean", "data_6.rds")) 
 
 ## Initial distribution evaluation about delay treatment 
+data_6 %>% 
+  filter(evolution == "Cure") %>% 
+  summarise(median = median(dif_day_tx_symp))
+
 ggplot(data = data_6, aes(x = dif_day_tx_symp)) +
   geom_histogram(colour = "black", fill = "lightblue") +
   geom_vline(aes(xintercept = median(dif_day_tx_symp[death_vl == 1], na.rm = T)), 
@@ -587,6 +597,9 @@ data_6 %>%
 
 #################### Box-plot delay distribution by year distribution ##########################################
 
+data_6 <- data_6 %>% 
+  mutate(year = year(date_of_notification))
+
 ggplot(data = data_6 %>% filter(year > 2006 & evolution %in% c("Cure", "Death for VL")),
        mapping = aes(x = as.factor(year), y = dif_day_tx_symp, fill = evolution)) +
   geom_boxplot(position = position_dodge()) +
@@ -651,11 +664,12 @@ ggplot(ss_table %>% filter(!is.na(ss_value)),
     x = "Symptom", 
     y = "Delay between symptoms onset to treatment iniation",
     fill = "Condition") +
+  coord_flip() +
   theme_bw() +
   theme(
     legend.position = "bottom",
     axis.text = element_text(color = "black", size = 12),
-    axis.text.x = element_text(angle = 90),
+    axis.text.x = element_text(angle = 0),
     axis.title = element_text(color = "black", size = 14, face = "bold"),
     legend.title = element_text(face = "bold", size = 14, color = "black"),
     legend.text = element_text(color = "black", size = 12)) 
@@ -683,12 +697,20 @@ distribution_histogram <- ggplot(data = data_6 %>% filter(!dif_day_tx_dx < 0 & d
 distribution_histogram
 
 ### General cases of visceral leishmaniasis delay symptoms to treatment
-distribution_histogram_2 <- ggplot(data = data_6 %>%  filter(!dif_treat_start_symp < 0 & dif_treat_start_symp < 366), aes(x = as.numeric(dif_treat_start_symp))) +
-  geom_histogram(position = "identity", aes(y = after_stat(density), fill = "Symptoms to treatment"), color = "black", alpha = 0.2) +
-  geom_vline(xintercept = c(q25, q50, q75, q95), linetype = "dashed", colour = c("darkgreen", "gold3", "brown2", "brown")) +
+
+q25 <- quantile(data_6$dif_day_tx_symp, 0.25, na.rm = T)
+q50 <- quantile(data_6$dif_day_tx_symp, 0.50, na.rm = T)
+q75 <- quantile(data_6$dif_day_tx_symp, 0.75, na.rm = T)
+q95 <- quantile(data_6$dif_day_tx_symp, 0.95, na.rm = T)
+
+distribution_histogram_2 <- ggplot(data = data_6, aes(x = as.numeric(dif_day_tx_symp))) +
+  geom_histogram(position = "identity", aes(y = after_stat(density), 
+                                            fill = "Symptoms to treatment initiation"), color = "black", alpha = 0.2) +
+  geom_vline(xintercept = c(q25, q50, q75, q95), 
+             linetype = "dashed", colour = c("darkgreen", "gold3", "brown2", "brown")) +
   scale_x_continuous(transform = "log", n.breaks = 10, labels = label_number(accuracy = 1)) +
   scale_y_continuous(n.breaks = 10) +
-  scale_fill_manual(values = c("Symptoms to treatment" = "brown2")) +
+  scale_fill_manual(values = c("Symptoms to treatment initiation" = "plum3")) +
   labs(fill = "Delay time", x = "Time (days)", y = "Probability") +
   theme_bw() +
   theme(
@@ -699,15 +721,18 @@ distribution_histogram_2 <- ggplot(data = data_6 %>%  filter(!dif_treat_start_sy
     legend.text = element_text(color = "black", size = 12),
   ) +
   annotate(geom = "text", x = c(13, 25, 51, 138), y = c(0.5), 
-           label = c("q25", "q50", "q75", "q95"), fontface = "italic",
-           fontface = "bold",
+           label = c("q25 = 14 days", "q50 = 29 days", "q75 = 59 days", "q95 = 152 days"), 
+           fontface = "bold.italic",
            angle = 90)
   
 
 distribution_histogram_2
 
+
+####################################### Histograms with the most important features ###############################################
+
 ## HIV histogram
-h_hiv <- ggplot(data = data_6, aes(x = as.numeric(dif_day_tx_symp))) +
+h_hiv <- ggplot(data = data_6 %>%  filter(!is.na(hiv_2)), aes(x = as.numeric(dif_day_tx_symp))) +
   geom_histogram(aes(y = after_stat(density), fill = hiv_2), position = "identity", color = "black", alpha = 0.3) +
   geom_density(aes(color = hiv_2), lwd = 1) +
   labs(x = "Difference days (Onset symptoms to treatment)", y = "Density", fill = "HIV", color = "HIV") +
@@ -715,24 +740,9 @@ h_hiv <- ggplot(data = data_6, aes(x = as.numeric(dif_day_tx_symp))) +
   theme(axis.title = element_text(face = "bold"),
         legend.title = element_text(face = "bold")) +
   scale_x_continuous(n.breaks = 15, transform = "log", 
-                     labels = function(x) format(round(x), nsmall = 0))
+                     labels = function(x) format(round(x), nsmall = 0)) +
+  scale_y_continuous(n.breaks = 10)
   
-h_hiv
-
-
-h_hiv <- ggplot(data = data_6, aes(x = as.numeric(dif_day_tx_symp))) +
-  geom_histogram(aes( y = after_stat(density),
-                      fill = hiv_2), 
-                 position = "identity",
-                 color = "black", alpha = 0.3) +
-  geom_density(aes(color = hiv_2), lwd = 1) +
-  labs(x = "Difference days (Onset symptoms to treatment)", y = "Probability", fill = "HIV", color = "HIV") +
-  theme_bw() +
-  theme(axis.title = element_text(face = "bold"),
-        legend.title = element_text(face = "bold")) +
-  scale_x_continuous(n.breaks = 15, transform = "log10", 
-                     labels = function(x) format(round(x), nsmall = 0))
-
 h_hiv
 
 
@@ -980,12 +990,9 @@ ggplot(data = data_6, aes(x = name_health_region, y = dif_day_tx_symp)) +
 
 #####################################################################################################################################
 ### MAP delay days between onset symptoms to treatment. 
-map_uf_shp <- read_sf(here("BR_UF_2023", "BR_UF_2023.shp")) %>% 
+map_uf_shp <- read_sf(here("map_risk_vl_brazil", "BR_UF_2023", "BR_UF_2023.shp")) %>% 
   clean_names()
 map_uf <- as.data.frame(read_state(year = 2020))
-
-mortality <- data_6
-  
 
 data_ost <- data_6 %>% 
   mutate(year_3 = case_when(year >= 2007 & year <= 2009 ~ "2007 - 2009",
@@ -1029,6 +1036,9 @@ map_uf_shp_3 <- full_join(map_uf_shp_2, select(data_ost_2, federative_unit, medi
                               TRUE ~ "Less than 100 cases")), 
          nm_uf = na_if(str_trim(nm_uf), "Distrito Federal")) %>%
   st_as_sf()
+
+map_uf_shp_df <- as.data.frame(map_uf_shp_3)
+export(map_uf_shp_3, here("data base and clean", "map_uf_shp_df.rds"))
 
 breaks <- c(10, 20, 40, 60, 80, Inf)
 
@@ -1183,25 +1193,24 @@ mortality_risk <- survfit2(Surv(dif_treat_outcome, death_vl) ~ 1, data = data_6)
   
   ### groups of age
   
-  group_age <- survfit2(Surv(dif_treat_outcome, death_vl) ~ age_group_2, data = data_6) 
+  group_age <- survfit2(Surv(dif_treat_outcome, death_vl) ~ 
+                          age_group_2 + dif_treat_start_symp_cat, data = data_6) 
   
-  ga <- ggsurvfit(group_age, linewidth = 1) +
-    add_confidence_interval() +
+  gd <- ggsurvfit(delay, linewidth = 1) +
+    #add_confidence_interval() +
     add_risktable(risktable_stats = "{n.risk} ({cum.event})", 
-                  theme = theme_bw()) +
+                  theme = theme_bw(), risktable_height = 0.2) +
     add_censor_mark() +
-    add_pvalue(caption="Log-rank {p.value}",
-               location = "annotation", x = 50, y = 0.68) +
-    add_risktable_strata_symbol(symbol = "\U25CF", size = 10) +
+    #add_pvalue(caption="Log-rank {p.value}",
+    #         location = "annotation", x = 50, y = 0.68) +
     scale_ggsurvfit() + 
-    coord_cartesian(ylim = c(0.65, 1)) +
+    coord_cartesian(ylim = c(0.85, 1)) +
     scale_x_continuous(n.breaks = 15) +
     scale_y_continuous(n.breaks = 12, label = scales::label_percent()) +
     add_quantile(x_value = 30, linetype = "dotted", 
                  color = "grey30", linewidth = 0.8) +
     #geom_vline(xintercept = 30, linetype = "dashed", colour = "grey30") +
-    labs(x = "Time (days after to start treatment)", color = "Age group", 
-         fill = "Age group") +
+    labs(x = "Time (days after to start treatment)") +
     theme_bw() +
     theme(legend.position = "bottom", 
           axis.text = element_text(color = "black", size = 10),
@@ -1209,8 +1218,53 @@ mortality_risk <- survfit2(Surv(dif_treat_outcome, death_vl) ~ 1, data = data_6)
           legend.title = element_text(face = "bold", size = 14, color = "black"),
           legend.text = element_text(color = "black", size = 12),
     ) 
-    
-  print(ga)
+  
+
+  ggsurvplot_facet(fit = group_age, data = data_6, 
+                   facet.by = "dif_treat_start_symp_cat", 
+                   pval = T, ncol = 2, short.panel.labs = T) +
+    scale_y_continuous(limits = c(0.7, 1)) +
+    labs(color = "Age group") +
+    theme_bw() +
+    theme(
+      legend.position = "bottom",
+      legend.text = element_text(size = 12, color = "black"),
+      legend.title = element_text(size = 14, color = "black", face = "bold"),
+      strip.text = element_text(size = 12, color = "black", face = "bold"),
+      axis.title = element_text(size = 14, color = "black", face = "bold")
+    ) 
+  
+  ### Year survival curves 
+  
+  data_6 %>% 
+    tabyl(year)
+  
+  year <- survfit2(Surv(dif_treat_outcome, death_vl) ~ year_period, data = data_6) 
+  
+  gyear <- ggsurvfit(year, linewidth = 1) +
+    #add_confidence_interval() +
+    add_risktable(risktable_stats = "{n.risk} ({cum.event})", 
+                  theme = theme_bw(), risktable_height = 0.2) +
+    add_censor_mark() +
+    #add_pvalue(caption="Log-rank {p.value}",
+    #         location = "annotation", x = 50, y = 0.68) +
+    scale_ggsurvfit() + 
+    coord_cartesian(ylim = c(0.7, 1)) +
+    scale_x_continuous(n.breaks = 15) +
+    scale_y_continuous(n.breaks = 12, label = scales::label_percent()) +
+    add_quantile(x_value = 30, linetype = "dotted", 
+                 color = "grey30", linewidth = 0.8) +
+    #geom_vline(xintercept = 30, linetype = "dashed", colour = "grey30") +
+    labs(x = "Time (days after to start treatment)") +
+    theme_bw() +
+    theme(legend.position = "bottom", 
+          axis.text = element_text(color = "black", size = 10),
+          axis.title = element_text(color = "black", size = 14, face = "bold"),
+          legend.title = element_text(face = "bold", size = 14, color = "black"),
+          legend.text = element_text(color = "black", size = 12),
+    ) 
+  
+  print(gyear)
   
   
   ### HIV survival curves
@@ -1286,7 +1340,7 @@ mortality_risk <- survfit2(Surv(dif_treat_outcome, death_vl) ~ 1, data = data_6)
   
   gtto +
     facet_wrap(~ hiv_2)
-  
+
 
   ### Mortality comparing time between symptoms onset to start treatment and and type of the treatment
   
@@ -1407,5 +1461,298 @@ mortality_risk <- survfit2(Surv(dif_treat_outcome, death_vl) ~ 1, data = data_6)
   
   ##################################################################################################################
   
+  #### Table with the main variables to evaluate about time between treatment initiation and death by VL
   
+  data_9 <- data_8 %>% 
+    mutate_at(vars("fever", "edema", "weight_loss",
+                   "cough_and_dyspnea", "spleen_enlargement",
+                   "hemorrhagic_phenomena", "liver_enlargement",
+                   "jaundice"), ~ if_else(. == 1, T, F))
   
+  var_2 <- c("age_group_2", "gender",  "region", "race_2", 
+                   "fever", "edema", "weight_loss",
+                   "cough_and_dyspnea", "spleen_enlargement",
+                   "hemorrhagic_phenomena", "liver_enlargement",
+                   "jaundice", "hiv_2", "name_tx")
+  
+  symptom_vars <- c(
+    "fever", "edema", "weight_loss",
+    "cough_and_dyspnea", "spleen_enlargement",
+    "hemorrhagic_phenomena", "liver_enlargement",
+    "jaundice"
+  )
+  
+  fmt_median_range <- function(x) {
+    paste0(
+      round(median(x, na.rm = TRUE), 0), " [",
+      round(min(x, na.rm = TRUE), 0), "-",
+      round(max(x, na.rm = TRUE), 0), "]"
+    )
+  }
+  
+  ### Function to make baseline table by delay variables
+  median_time_order <- function(vars, data) {
+    
+    map_dfr(vars, function(v) {
+      
+      d_sub <- data %>%
+        filter(
+          !is.na(.data[[v]]),
+          !is.na(dif_treat_outcome),
+          dif_treat_outcome > 0
+        )
+      
+      if (v %in% symptom_vars) {
+        d_sub <- d_sub %>% filter(.data[[v]] == TRUE)
+      }
+      
+      if (nrow(d_sub) == 0) return(NULL)
+      
+      # ====================
+      # Alive / Death
+      # ====================
+      by_outcome <- d_sub %>%
+        filter(!is.na(death_vl)) %>%
+        group_by(
+          variable = v,
+          level = as.character(.data[[v]]),
+          death_vl
+        ) %>%
+        summarise(
+          stat = fmt_median_range(dif_treat_outcome),
+          .groups = "drop"
+        ) %>%
+        mutate(
+          outcome = if_else(death_vl == 1, "Death", "Cure")
+        ) %>%
+        select(-death_vl)
+      
+      # ====================
+      # Overall
+      # ====================
+      overall <- d_sub %>%
+        group_by(variable = v,
+          level = as.character(.data[[v]])) %>%
+        summarise(
+          stat = fmt_median_range(dif_treat_outcome),
+          outcome = "Overall",
+          .groups = "drop"
+        )
+      
+      bind_rows(by_outcome, overall)
+    }
+    ) %>%
+      
+    pivot_wider(names_from = outcome,values_from = stat) %>%
+      mutate( variable = factor(variable, levels = vars)) %>%
+      arrange(variable, level)
+  }
+  
+  # run
+  dif_table <- median_time_order(var_2, data_9) %>% 
+    as.data.frame() %>% 
+    mutate(
+      variable = recode(
+        variable,
+        age_group_2 = "Age group",
+        gender = "Gender",
+        region = "Region",
+        race_2 = "Race/colour",
+        hiv_2 = "HIV status",
+        name_tx = "Treatment",
+        fever = "Fever",
+        edema = "Oedema",
+        weight_loss = "Weight loss",
+        cough_and_dyspnea = "Cough and dyspnea",
+        spleen_enlargement = "Splenomegaly",
+        hemorrhagic_phenomena = "Haemorrhage",
+        liver_enlargement = "Hepatomegaly",
+        jaundice = "Jaundice"
+      ),
+      level = if_else(
+        variable %in% c(
+          "Fever", "Oedema", "Weight loss",
+          "Cough and dyspnea", "Splenomegaly",
+          "Haemorrhage", "Hepatomegaly", "Jaundice"
+        ),
+        variable,
+        level
+      )
+    ) %>% 
+    rename("Characteristic" = level) %>% 
+    add_row(Characteristic = "Signs and Symptoms", 
+            Cure = " ", Death = " ", Overall = " ", .before = 19)  
+  
+  t_sub <- function(x) {
+    as_paragraph(as_i("t"), as_sub(x))
+  }
+  
+  table_3 <-  as_grouped_data(dif_table, groups = "variable", expand_single = T) %>% 
+    as_flextable(hide_grouplabel = T) %>% 
+    delete_rows(i = c(23, 25, 27, 29, 31, 33, 35, 37, 39), part = "body") %>% 
+    bold(i = c(1, 7, 10, 16, 23, 32, 35)) %>% 
+    bold(i = 1, part = "header") %>% 
+    align(j = c(2, 3, 4), part = "all", align = "center") %>%
+    flextable:: compose(j = "Cure", part = "header",
+      value = as_paragraph("Cure\nmedian [range] days (",
+        as_i("t"), as_sub("t"), "–", as_i("t"), as_sub("c"), ")")
+    ) %>% 
+    flextable:: compose(j = "Cure", part = "header",
+                        value = as_paragraph("Cure\nmedian [range] days (",
+                                             as_i("t"), as_sub("t"), "–", as_i("t"), as_sub("c"), ")")
+    ) %>% 
+    flextable:: compose(j = "Death", part = "header",
+                        value = as_paragraph("Death\nmedian [range] days (",
+                                             as_i("t"), as_sub("t"), "–", as_i("t"), as_sub("m"), ")")
+    ) %>% 
+    flextable:: compose(j = "Overall", part = "header",
+                        value = as_paragraph("Overall\nmedian [range] days (",
+                                             as_i("t"), as_sub("t"), "–", as_i("t"), as_sub("o"), ")")
+    ) %>% 
+    footnote(
+      i = 1,
+      j = 2:4, part = "header",
+      value = as_paragraph(
+        "Time between treatment initiation (", as_i("t"), as_sub("t"),
+        ") and outcome\n", as_i("t"), as_sub("c"),
+        " = time to cure, ", as_i("t"), as_sub("m"),
+        " = time to death, ", as_i("t"), as_sub("o"),
+        " = time to outcome")
+    ) %>% 
+  autofit() 
+    #theme_vanilla() %>% 
+    
+  table_3 %>% 
+    save_as_docx(path = here("figures and tables", "table_3.docx"))
+  
+ ############################################################################################################
+  
+  data_6 %>% 
+    mutate(years_d = case_when(year >= 2007 & year <= 2010 ~ "2007-2010",
+                               year >= 2011 & year <= 2015 ~ "2011-2015",
+                               year >= 2016 & year <= 2020 ~ "2016-2020",
+                               year >= 2021 & year <= 2023 ~ "2021-2023",
+                               TRUE ~ NA)) %>% 
+    tabyl(years_d)
+
+  summary(data_6$dif_day_tx_symp[data_6$gender == "Female"])
+  
+ggplot(data = data_6, aes(x = dif_day_tx_dx)) +
+  geom_histogram() +
+  scale_x_continuous(transform = "log") +
+  facet_wrap(~region)
+
+
+#### Histograms panels based
+# ---------------------------
+# 1. Prepare data
+# ---------------------------
+data_6 <- data_6 %>%
+  mutate(dif = as.numeric(dif_day_tx_symp))
+
+# Global x limits (same for ALL plots)
+xlims <- range(data_6$dif, na.rm = TRUE)
+
+# ---------------------------
+# 2. Plot function
+# ---------------------------
+hist_plot <- function(df, median_value, 
+                      fill_col = "grey70", 
+                      show_y = TRUE, title = NULL) {
+  ggplot(df, aes(x = dif)) +
+    geom_histogram(
+      aes(y = after_stat(density)),
+      fill = fill_col,
+      color = "black",
+      alpha = 0.4
+    ) +
+    geom_vline(
+      xintercept = median_value,
+      linetype = "dashed"
+    ) +
+    scale_x_continuous(
+      trans = "log10",
+      limits = xlims,
+      n.breaks = 10
+    ) +
+    labs(title = title, x = "Days", y = "Density") +
+    theme_bw() +
+    theme(
+      plot.title = element_text(face = "bold", hjust = 0.5),
+      axis.title = element_text(face = "bold", size = 12, color = "black"),
+      #axis.title.y = if (show_y) element_text() else element_blank(),
+      #axis.text.y  = if (show_y) element_text() else element_blank(),
+      #axis.ticks.y = if (show_y) element_line() else element_blank()
+    )
+}
+
+# ---------------------------
+# 3. Overall (single) plot
+# ---------------------------
+overall_median <- median(data_6$dif, na.rm = TRUE)
+
+p_overall <- hist_plot(
+  df = data_6,
+  median_value = overall_median,
+  fill_col = "plum3",
+  show_y = TRUE,
+  title = "Overall"
+) 
+
+# ---------------------------
+# 4. One plot per region
+# ---------------------------
+region_plots <- data_6 %>%
+  group_split(region) %>%
+  lapply(function(df) {
+    hist_plot(
+      df = df,
+      median_value = median(df$dif, na.rm = TRUE),
+      fill_col = "grey70",
+      show_y = FALSE,
+      title = unique(df$region)
+    ) +
+      theme(
+        axis.title = element_text(face = "bold", size = 12, color = "black")
+      )
+  })
+
+# ---------------------------
+# 5. Assemble final figure
+# ---------------------------
+final_plot <- ggarrange(p_overall + rremove("xlab"), 
+                        region_plots[[1]] + rremove("xlab") + rremove("ylab"), 
+                        region_plots[[2]] + rremove("xlab") + rremove("ylab"),
+                        region_plots[[3]], 
+                        region_plots[[4]] + rremove("ylab"), 
+                        region_plots[[5]] + rremove("ylab")) 
+
+
+ap <- ggarrange(p_1 + rremove("ylab") + rremove("xlab") ,
+                p_2 + rremove("ylab") + rremove("xlab") + theme(axis.text.y = element_blank()), 
+                p_3 + rremove("ylab") + rremove("xlab"), 
+                p_4 + rremove("ylab") + rremove("xlab") + theme(axis.text.y = element_blank()), 
+                ncol = 2, nrow = 2, common.legend = T, 
+                labels = c("<30 days","30–89 days", "90–119 days", "≥120 days"),
+                legend = "right", align = "hv",
+                label.x = 0.05,    
+                label.y = 0.98, 
+                font.label = list(size = 10, color = "black", face = "bold", family = NULL, position = "lef"))
+
+ap_annotated <- annotate_figure(ap, bottom = textGrob("Delay (days)", gp = gpar(cex = 1.3, fontface = "bold")),
+                                left = textGrob("Age group", rot = 90, vjust = 0.3, gp = gpar(cex = 1.3, fontface = "bold")))
+
+
+
+
+    
+  ggplot(data = data_6, aes(x = as.numeric(dif_day_tx_dx))) +
+    geom_histogram(
+      #aes(y = after_stat(density)),
+                   fill = "grey",
+                   color = "black",
+                   alpha = 0.4
+    ) +
+    scale_x_continuous(transform = "log10",
+                       limits = c(0, 30)) +
+    facet_wrap(~ region + year_period)
