@@ -204,7 +204,8 @@ baseline_hazard$survival <- exp(-baseline_hazard$hazard)
 
 nd <- predict()
 
-fit_rms_2 <- coxph(Surv(dif_treat_outcome, death_vl) ~ rcs(dif_day_tx_symp, 4) + rcs(age_years, 4) + hiv_3,
+fit_rms_2 <- coxph(Surv(dif_treat_outcome, death_vl) ~ rcs(dif_day_tx_symp, 4)
+                   + rcs(age_years, 4) + hiv_3,
                    data = data_8)
 
 

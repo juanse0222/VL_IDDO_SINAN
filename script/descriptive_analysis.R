@@ -1,17 +1,16 @@
 pacman::p_load(flextable, tidyverse, janitor, epikit, gtsummary, rio, 
                survival, survminer, sf, here, incidence, ggstance, ggbeeswarm, 
-               grid, ggsurvfit, geobr, rms, patchwork)
+               grid, ggsurvfit, geobr, rms, patchwork, biostat3, simukde)
 
 devtools::install_github("danicat/read.dbc")
 
 library(read.dbc)
 
-
-##########################################################################################################################
+#############################  Initial evaluation and variables set up ##################################################################
 ### Descriptive analysis. 
-data_6 <- import(here("data base and clean", "data_6.rds")) 
+data_6 <- import(here("data base and clean", "data_6.rds"))  ### Clean database
 
-## Initial distribution evaluation about delay treatment 
+## Initial distribution evaluation about delay treatment: Cure vs death by VL
 data_6 %>% 
   filter(evolution == "Cure") %>% 
   summarise(median = median(dif_day_tx_symp))
@@ -35,7 +34,7 @@ ggplot(data = data_6, aes(x = dif_day_tx_symp)) +
     legend.text = element_text(color = "black", size = 12))
 
 
-### Adjusting variables 
+#### Adjusting variables necessary to futher analysis
 data_6 <- data_6 %>%
   mutate(age_group_2 = case_when(age_years >= 0 & age_years <= 1 ~ "0-1",
                                  age_years > 1 & age_years <= 5 ~ "1-5",
@@ -115,7 +114,7 @@ data_6 <- data_6 %>%
 
 
 
-### Distribution and direction time between recurrences by characteristics and some variables chosen 
+############################# Distribution and direction time between recurrences by characteristics and some variables chosen #########################################
 
 ## variables in the table
 var_order <- c("age_group_2", "gender", "year_period", "region",
@@ -303,7 +302,111 @@ tab_1 <- dif_table %>%
 tab_1 %>% 
   save_as_docx(path = here("figures and tables", "table_1.docx"))
 
-######################################################## GAM and logsitic model for mortality evaluation ###################################################
+############################# Characteristics and distribution time treatment initiation and symptoms onset ################################ 
+
+q25 <- quantile(as.numeric(data_6$dif_treat_start_symp), 0.25, na.rm = TRUE)
+q50 <- quantile(as.numeric(data_6$dif_treat_start_symp), 0.50, na.rm = TRUE)
+q75 <- quantile(as.numeric(data_6$dif_treat_start_symp), 0.75, na.rm = TRUE)
+q95 <- quantile(as.numeric(data_6$dif_treat_start_symp), 0.95, na.rm = TRUE)
+
+quant_df <- data.frame(
+  Quantile = c("Q25 = 12", "Q50 = 27", "Q75 = 60", "Q95 = 165"),
+  value = c(q25, q50, q75, q95))
+
+data_6 %>% 
+  filter(!is.na(dif_day_tx_dx)) %>% 
+  summarise(n = quantile(dif_day_tx_dx, 0.5))
+
+
+### Table 1. General characteristics in database
+
+data_6$year_period
+
+data_6 %>% 
+  filter(evolution %in% c("Death for VL", "Cure")) %>% 
+  mutate(dif_day_tx_symp = as.numeric(dif_day_tx_symp)) %>%
+  select(age_group_2, gender, race_2, year_period, region,
+         hiv_2, dif_day_tx_symp, name_tx, evolution,
+        ) %>% 
+  tbl_summary(by = evolution, 
+              #missing_stat = "{n} ({p}%)", 
+              missing = "no",
+              statistic = list(all_categorical() ~ "{n} ({p}%)",
+                               all_continuous() ~ "{median} ({p25},{p75})"), 
+              label = list(age_group_2 = "Age years",
+                           # age_group = "Age group",
+                           gender = "Gender",
+                           race_2 = "Race/Color",
+                           year_period = "Period",
+                           region = "Region",
+                           hiv_2 = "HIV",
+                           dif_day_tx_symp = "Days symptoms to treatment",
+                           name_tx = "Treatment"
+                           )) %>% 
+  add_overall(last = T) %>%
+  add_p() %>% 
+  bold_labels() %>% 
+  as_flex_table() %>% 
+  autofit() %>% 
+  save_as_docx(path = here("figures and tables", "table_1.0.docx"))
+
+data_6 %>% 
+  tabyl(evolution)
+
+
+data_6 %>% 
+  mutate(dif_day_tx_symp = as.numeric(dif_day_tx_symp)) %>%
+  select(age_years, gender, education_level, race_2, pregnant, evolution, dif_day_dx_symp, dif_day_tx_symp, 
+         dif_treat_start_symp_cat) %>% 
+  tbl_summary(by = dif_treat_start_symp_cat, 
+              #missing_stat = "{n} ({p}%)",
+              missing = "no",
+              statistic = list(all_categorical() ~ "{n} ({p}%)",
+                               all_continuous() ~ "{median} ({p25},{p75})"), 
+              label = list(age_years = "Age years",
+                           # age_group = "Age group",
+                           gender = "Gender",
+                           education_level = "Education level",
+                           race_2 = "Race/Color",
+                           pregnant = "Gestational age",
+                           dif_day_tx_symp = "Days symptoms to treatment",         
+                           dif_day_dx_symp = "Days symptoms to diagnosis")) %>% 
+  add_overall(last = T) %>% 
+  add_p() %>% 
+  bold_labels() %>% 
+  as_flex_table() %>% 
+  autofit()  %>% 
+  save_as_docx(path = here("figures and tables", "table_1.docx"))
+
+### Table 2. Clinic and treatment features in database by delay symptoms onset to treatment, 
+
+data_6 %>% 
+  select(dif_treat_start_symp_cat, fever_2, edema_2, 
+         hemorrhagic_phenomena_2, evolution, hiv_2, name_tx) %>% 
+  tbl_summary(by = dif_treat_start_symp_cat, 
+              #missing_stat = "{n} ({p}%)",
+              missing = "no", 
+              statistic = list(all_categorical() ~ "{n} ({p}%)",
+                               all_continuous() ~ "{median} ({p25},{p75})"), 
+              label = list(dif_treat_start_symp_cat = "Delay symptoms to treatment",                      
+                           name_tx = "Treatment",
+                           hiv_2 = "HIV status",
+                           edema_2 = "Oedema",
+                           fever_2 = "Fever",
+                           hemorrhagic_phenomena_2 = "Bleeding")) %>% 
+  add_overall(last = T) %>% 
+  modify_table_body(filter, !(row_type == "level" &
+        variable %in% c("fever_2", "edema_2", "hemorrhagic_phenomena_2") &
+        label == "Unknown")) %>% 
+  add_p() %>% 
+  bold_labels() %>% 
+  as_flex_table() %>% 
+  autofit() %>% 
+  save_as_docx(path = here("figures and tables", "table_2.docx"))
+
+data_6 %>% 
+  tabyl(hemorrhagic_phenomena)
+############################# GAM and logistic model for mortality evaluation ###################################################
 
 var_order_2 <- c("age_group_2", "gender",  "region",
                  "education_level", "race_2", "hiv_2", "name_tx")
@@ -488,114 +591,8 @@ table_2 <- mort_table %>%
 
 table_2 %>% 
   save_as_docx(path = here("figures and tables", "table_2.docx"))
-###################################################################################################################################################
-### Behavior difference start treatment and onset symptoms. 
 
-q25 <- quantile(as.numeric(data_6$dif_treat_start_symp), 0.25, na.rm = TRUE)
-q50 <- quantile(as.numeric(data_6$dif_treat_start_symp), 0.50, na.rm = TRUE)
-q75 <- quantile(as.numeric(data_6$dif_treat_start_symp), 0.75, na.rm = TRUE)
-q95 <- quantile(as.numeric(data_6$dif_treat_start_symp), 0.95, na.rm = TRUE)
-
-quant_df <- data.frame(
-  Quantile = c("Q25 = 12", "Q50 = 27", "Q75 = 60", "Q95 = 165"),
-  value = c(q25, q50, q75, q95))
-
-data_6 %>% 
-  filter(!is.na(dif_day_tx_dx)) %>% 
-  summarise(n = quantile(dif_day_tx_dx, 0.5))
-
-
-### Table 1. General characteristics in database
-
-data_6$year_period
-
-data_6 %>% 
-  filter(evolution %in% c("Death for VL", "Cure")) %>% 
-  mutate(dif_day_tx_symp = as.numeric(dif_day_tx_symp)) %>%
-  select(age_group_2, gender, race_2, year_period, region,
-         hiv_2, dif_day_tx_symp, name_tx, evolution,
-        ) %>% 
-  tbl_summary(by = evolution, 
-              #missing_stat = "{n} ({p}%)", 
-              missing = "no",
-              statistic = list(all_categorical() ~ "{n} ({p}%)",
-                               all_continuous() ~ "{median} ({p25},{p75})"), 
-              label = list(age_group_2 = "Age years",
-                           # age_group = "Age group",
-                           gender = "Gender",
-                           race_2 = "Race/Color",
-                           year_period = "Period",
-                           region = "Region",
-                           hiv_2 = "HIV",
-                           dif_day_tx_symp = "Days symptoms to treatment",
-                           name_tx = "Treatment"
-                           )) %>% 
-  add_overall(last = T) %>%
-  add_p() %>% 
-  bold_labels() %>% 
-  as_flex_table() %>% 
-  autofit() %>% 
-  save_as_docx(path = here("figures and tables", "table_1.0.docx"))
-
-data_6 %>% 
-  tabyl(evolution)
-
-
-data_6 %>% 
-  mutate(dif_day_tx_symp = as.numeric(dif_day_tx_symp)) %>%
-  select(age_years, gender, education_level, race_2, pregnant, evolution, dif_day_dx_symp, dif_day_tx_symp, 
-         dif_treat_start_symp_cat) %>% 
-  tbl_summary(by = dif_treat_start_symp_cat, 
-              #missing_stat = "{n} ({p}%)",
-              missing = "no",
-              statistic = list(all_categorical() ~ "{n} ({p}%)",
-                               all_continuous() ~ "{median} ({p25},{p75})"), 
-              label = list(age_years = "Age years",
-                           # age_group = "Age group",
-                           gender = "Gender",
-                           education_level = "Education level",
-                           race_2 = "Race/Color",
-                           pregnant = "Gestational age",
-                           dif_day_tx_symp = "Days symptoms to treatment",         
-                           dif_day_dx_symp = "Days symptoms to diagnosis")) %>% 
-  add_overall(last = T) %>% 
-  add_p() %>% 
-  bold_labels() %>% 
-  as_flex_table() %>% 
-  autofit()  %>% 
-  save_as_docx(path = here("figures and tables", "table_1.docx"))
-
-### Table 2. Clinic and treatment features in database by delay symptoms onset to treatment, 
-
-data_6 %>% 
-  select(dif_treat_start_symp_cat, fever_2, edema_2, 
-         hemorrhagic_phenomena_2, evolution, hiv_2, name_tx) %>% 
-  tbl_summary(by = dif_treat_start_symp_cat, 
-              #missing_stat = "{n} ({p}%)",
-              missing = "no", 
-              statistic = list(all_categorical() ~ "{n} ({p}%)",
-                               all_continuous() ~ "{median} ({p25},{p75})"), 
-              label = list(dif_treat_start_symp_cat = "Delay symptoms to treatment",                      
-                           name_tx = "Treatment",
-                           hiv_2 = "HIV status",
-                           edema_2 = "Oedema",
-                           fever_2 = "Fever",
-                           hemorrhagic_phenomena_2 = "Bleeding")) %>% 
-  add_overall(last = T) %>% 
-  modify_table_body(filter, !(row_type == "level" &
-        variable %in% c("fever_2", "edema_2", "hemorrhagic_phenomena_2") &
-        label == "Unknown")) %>% 
-  add_p() %>% 
-  bold_labels() %>% 
-  as_flex_table() %>% 
-  autofit() %>% 
-  save_as_docx(path = here("figures and tables", "table_2.docx"))
-
-data_6 %>% 
-  tabyl(hemorrhagic_phenomena)
-
-
-#################### Box-plot delay distribution by year distribution ##########################################
+############################# Box-plot delay distribution by year distribution ##########################################
 
 data_6 <- data_6 %>% 
   mutate(year = year(date_of_notification))
@@ -729,7 +726,7 @@ distribution_histogram_2 <- ggplot(data = data_6, aes(x = as.numeric(dif_day_tx_
 distribution_histogram_2
 
 
-####################################### Histograms with the most important features ###############################################
+############################# Histograms and figures of main co-variables, preliminary findings ###############################################
 
 ## HIV histogram
 h_hiv <- ggplot(data = data_6 %>%  filter(!is.na(hiv_2)), aes(x = as.numeric(dif_day_tx_symp))) +
@@ -746,7 +743,7 @@ h_hiv <- ggplot(data = data_6 %>%  filter(!is.na(hiv_2)), aes(x = as.numeric(dif
 h_hiv
 
 
-#### Age distribution 
+######### Age distribution 
 
 gender <- c("Male" = "#00BFC4", "Female" = "#F8766D")
 
@@ -873,7 +870,7 @@ ap_annotated
 data_6$delay_cat_label %>% tabyl()
 
 
-### Fever
+###### Fever
 fever <- ggplot(data = data_6, aes(x = as.numeric(dif_day_tx_symp))) +
   geom_histogram(aes(y = after_stat(density),fill = fever_2), 
                  position = "identity" , color = "black", alpha = 0.3) +
@@ -901,8 +898,7 @@ g2_annotated <- annotate_figure(g2, bottom = textGrob("Difference days (Onset sy
 
 g2_annotated
 
-gender
-########################################################################################################################################################
+############################# Map of Distribution of incidence and number absolute of cases in Brazil ###########################################################################################################################
 ### Distribution by federative state
 
 map_brazil <- read_municipality(year = 2022) #### Brazil map level municipality
@@ -924,7 +920,6 @@ code_uf <- map_brazil %>% ### selection specific variables in federative units
   as.data.frame() %>% 
   select(-c(geom)) %>% 
   unique()
-
 
 #### Attention here you need use data_7
 ### Join UF's names with work's database. 
@@ -988,7 +983,6 @@ ggplot(data = data_6, aes(x = name_health_region, y = dif_day_tx_symp)) +
                                 "Q75 = 60" = "brown3", "Q95 = 165" = "orange3")) 
 
 
-#####################################################################################################################################
 ### MAP delay days between onset symptoms to treatment. 
 map_uf_shp <- read_sf(here("map_risk_vl_brazil", "BR_UF_2023", "BR_UF_2023.shp")) %>% 
   clean_names()
@@ -1126,13 +1120,13 @@ pal_green_red <- c(
       strip.text = element_text(size = 12)) +
     facet_wrap(~year_3, nrow = 2) 
   
-####################################################################################################################################
+############################# Survival analysis Kaplan Meier curves ######################################################################
   
-## Survival analysis 
+###### Survival analysis 
   
   library(ggsurvfit)
   
-  ### Behaviour lethality according with delay symptom onset to tretament
+###### General survival probability according with delay symptom onset to tretament
   
 mortality_risk <- survfit2(Surv(dif_treat_outcome, death_vl) ~ 1, data = data_6) 
   
@@ -1160,8 +1154,8 @@ mortality_risk <- survfit2(Surv(dif_treat_outcome, death_vl) ~ 1, data = data_6)
   
   print(gm)  
   
-  
-  ### Behaviour lethality according with delay symptom onset to tretament
+
+###### Survival probability by delay categories 
   
   delay <- survfit2(Surv(dif_treat_outcome, death_vl) ~ dif_treat_start_symp_cat, data = data_6) 
   
@@ -1191,7 +1185,7 @@ mortality_risk <- survfit2(Surv(dif_treat_outcome, death_vl) ~ 1, data = data_6)
   print(gd)  
   
   
-  ### groups of age
+#######  Survival probability by groups of age
   
   group_age <- survfit2(Surv(dif_treat_outcome, death_vl) ~ 
                           age_group_2 + dif_treat_start_symp_cat, data = data_6) 
@@ -1234,7 +1228,7 @@ mortality_risk <- survfit2(Surv(dif_treat_outcome, death_vl) ~ 1, data = data_6)
       axis.title = element_text(size = 14, color = "black", face = "bold")
     ) 
   
-  ### Year survival curves 
+####### Survival probability by calendar years
   
   data_6 %>% 
     tabyl(year)
@@ -1266,8 +1260,8 @@ mortality_risk <- survfit2(Surv(dif_treat_outcome, death_vl) ~ 1, data = data_6)
   
   print(gyear)
   
-  
-  ### HIV survival curves
+
+#######  Survival prabability by HIV 
   
   hiv <- survfit2(Surv(dif_treat_outcome, death_vl) ~ hiv_2, data = data_6) 
   
@@ -1309,7 +1303,7 @@ mortality_risk <- survfit2(Surv(dif_treat_outcome, death_vl) ~ 1, data = data_6)
   print(ghiv)
   
   
-  ### HIV survival treatment ----- be careful
+###### Survival probability by treatment ----- be careful
   
   tto <- survfit2(Surv(dif_treat_outcome, death_vl) ~ name_tx + hiv_2, data = data_6) 
   
@@ -1342,7 +1336,7 @@ mortality_risk <- survfit2(Surv(dif_treat_outcome, death_vl) ~ 1, data = data_6)
     facet_wrap(~ hiv_2)
 
 
-  ### Mortality comparing time between symptoms onset to start treatment and and type of the treatment
+### Mortality comparing time between symptoms onset to start treatment and and type of treatment
   
   data_6 <- data_6 %>% 
     mutate(edema_2 = if_else(edema == 1, "Yes oedema", "No oedema"),
@@ -1398,7 +1392,7 @@ mortality_risk <- survfit2(Surv(dif_treat_outcome, death_vl) ~ 1, data = data_6)
   print(gstx)
   
   
-  ### ### Death comparing time between symptoms onset to start treatment and and type of the treatment based on complications
+### Survival probability according time between symptoms onset to  treatment initiation and type of treatment based on complications
   gstx_tx <- ggsurvplot_facet(fit = death_risk_day_tx,
                               data = data_6,
                               facet.by = c("dif_treat_start_symp_cat", "severe"),
@@ -1428,7 +1422,7 @@ mortality_risk <- survfit2(Surv(dif_treat_outcome, death_vl) ~ 1, data = data_6)
   gstx_tx
   
   
-##### Treatment by HIV condition - survival analysis. 
+##### Survival probability by type of treatment and HIV condition
   
   gstx_tx <- ggsurvplot_facet(fit = death_risk_day_tx_2,
                               data = data_7,
@@ -1459,10 +1453,121 @@ mortality_risk <- survfit2(Surv(dif_treat_outcome, death_vl) ~ 1, data = data_6)
   
   gstx_tx
   
-  ##################################################################################################################
   
-  #### Table with the main variables to evaluate about time between treatment initiation and death by VL
+############################# Table 3. KM-estimate according with delay categories ####################################################
   
+data_6 <- data_6 %>% 
+  mutate(delay_categories = case_when(dif_day_tx_symp >= 0 & dif_day_tx_symp <= 14 ~ "≤14 days",
+                                      dif_day_tx_symp >= 15 & dif_day_tx_symp <= 30 ~ "15 to ≤ 30 days",
+                                      dif_day_tx_symp >= 31 & dif_day_tx_symp <= 60 ~ "31 to ≤ 60 days",
+                                      dif_day_tx_symp >= 61 & dif_day_tx_symp <= 90 ~ "61 to ≤ 90 days",
+                                      dif_day_tx_symp >= 91 & dif_day_tx_symp <= 120 ~ "91 to ≤ 120 days",
+                                      dif_day_tx_symp >= 121 & dif_day_tx_symp <= 150 ~ "121 to ≤ 150 days",
+                                      dif_day_tx_symp >= 151 & dif_day_tx_symp <= 180 ~ "151 to ≤ 180 days",
+                                      dif_day_tx_symp >= 181 ~ "≥6 months",
+                                      TRUE ~ NA),
+         delay_categories = factor(delay_categories, levels = c("≤14 days", 
+                                                                "15 to ≤ 30 days",
+                                                                "31 to ≤ 60 days",
+                                                                "61 to ≤ 90 days",
+                                                                "91 to ≤ 120 days",
+                                                                "121 to ≤ 150 days",
+                                                                "151 to ≤ 180 days",
+                                                                "≥6 months")))
+
+
+delay_cat <- survfit2(Surv(dif_treat_outcome, death_vl) ~ delay_categories, data = data_6) 
+times <- c(30, 60, 90, 180, 320)
+
+ggsurvfit(delay_cat, type = "survival")
+
+# get survival estimates at those times
+s <- summary(delay_cat, times = times)
+
+# turn into a table
+tbl <- data.frame(
+  category = s$strata,
+  time  = s$time,
+  n.risk = s$n.risk,   # optional
+  n.event = s$n.event, # optional
+  surv  = s$surv,
+  lower = s$lower,
+  upper = s$upper
+)
+
+tbl_2 <- pivot_wider(data = tbl,
+                     id_cols = category, names_from = time, 
+                     values_from = c(surv, lower, upper)) %>% 
+  mutate(across(-1,replace_na, 0))
+
+theme_gtsummary_journal(
+  journal = "lancet",
+  set_theme = TRUE)
+
+theme_gtsummary_compact()
+theme_gtsummary_printer()
+
+tbl_3 <- tbl_2 %>% 
+  dplyr::select(category, surv_30, lower_30, upper_30,
+         surv_60, lower_60, upper_60,
+         surv_90, lower_90, upper_90,
+         surv_180, lower_180, upper_180,
+         surv_320, lower_320, upper_320) %>% 
+  mutate(category = str_sub(category, 18, 200),
+         across(c(2:16), ~ round(., digits = 2)),
+         l_u_30 = paste0(surv_30, " [", lower_30, "-", upper_30, "]"),
+         l_u_60 = paste0(surv_60, " [", lower_60, "-", upper_60, "]"),
+         l_u_90 = paste0(surv_90, " [", lower_90, "-", upper_90, "]"),
+         l_u_180 = paste0(surv_180, " [", lower_180, "-", upper_180, "]"),
+         l_u_320 = paste0(surv_320, " [", lower_320, "-", upper_320, "]")) %>% 
+  dplyr::select(-c(surv_30, surv_60, surv_90, surv_180, surv_320,
+                   lower_30, lower_60, lower_90, lower_180, lower_320,
+                   upper_30, upper_60, upper_90, upper_180, upper_320)) %>% 
+  rename("Characteristic" = category,
+         "1 month" = l_u_30,
+         "2 months" = l_u_60,
+         "3 months" = l_u_90,
+         "6 months" = l_u_180,
+         "12 months" = l_u_320)
+
+### (Estimate [95% CI])
+
+
+ft_lancet <- tbl_3 %>%
+  flextable() %>%
+  
+#### Header formatting
+bold(part = "header") %>%
+  align(j = 1, align = "left", part = "all") %>%
+  align(j = 2:6, align = "center", part = "all") %>%
+  
+border_remove() %>% ### Remove borders
+  
+#### Main features of lancet tables. 
+hline_top(
+  border = fp_border(width = 2)
+) %>%
+  hline(
+    i = 1,
+    part = "header",
+    border = fp_border(width = 1.5)
+  ) %>%
+  hline_bottom(
+    border = fp_border(width = 2)
+  ) %>%
+  width(j = 1, width = 2.8) %>% ## Columns width
+  width(j = 2:6, width = 1.5) %>%
+  padding(padding = 4, part = "all") %>% ### Compacting spaces
+  footnote(i = 1, j = 2:6, value = as_paragraph("Survival estimation [95% CI]"), 
+           ref_symbols = "*", part = "header") %>% 
+  autofit() %>% 
+  save_as_docx(path = here("figures and tables", "table_survival.docx"))
+
+ft_lancet
+  
+############################# Supplementary table 2 ####################################################################################################
+
+#### Table with the main variables to evaluate about time between treatment initiation and death by VL
   data_9 <- data_8 %>% 
     mutate_at(vars("fever", "edema", "weight_loss",
                    "cough_and_dyspnea", "spleen_enlargement",
@@ -1625,8 +1730,9 @@ mortality_risk <- survfit2(Surv(dif_treat_outcome, death_vl) ~ 1, data = data_6)
   table_3 %>% 
     save_as_docx(path = here("figures and tables", "table_3.docx"))
   
- ############################################################################################################
-  
+############################# Distribution evaluation based on several parameters ##############################################################
+
+#### Initial address. 
   data_6 %>% 
     mutate(years_d = case_when(year >= 2007 & year <= 2010 ~ "2007-2010",
                                year >= 2011 & year <= 2015 ~ "2011-2015",
@@ -1644,100 +1750,103 @@ ggplot(data = data_6, aes(x = dif_day_tx_dx)) +
 
 
 #### Histograms panels based
-# ---------------------------
+
+ggplot(data_6, aes(x = log10(dif_day_tx_symp))) +
+  geom_histogram(aes(y = after_stat(density)),
+                 bins = 30,
+                 fill = "grey80",
+                 color = "black") +
+  stat_function(
+    fun = function(x) dlnorm(10^x, meanlog = 3.2789, sdlog = 1.093) * log(10) * 10^x,
+    color = "red",
+    linewidth = 1
+  ) +
+  labs(
+    x = "log10(days since symptom onset)",
+    y = "Density"
+  ) +
+  scale_x_continuous(n.breaks = 8, )
+
+### Review distribution_script to complete these results 
+
+############################# Distribution evaluation between symptoms onset to treatment by region ###################################################
 # 1. Prepare data
-# ---------------------------
-data_6 <- data_6 %>%
-  mutate(dif = as.numeric(dif_day_tx_symp))
-
-# Global x limits (same for ALL plots)
-xlims <- range(data_6$dif, na.rm = TRUE)
-
-# ---------------------------
-# 2. Plot function
-# ---------------------------
-hist_plot <- function(df, median_value, 
-                      fill_col = "grey70", 
-                      show_y = TRUE, title = NULL) {
-  ggplot(df, aes(x = dif)) +
-    geom_histogram(
-      aes(y = after_stat(density)),
-      fill = fill_col,
-      color = "black",
-      alpha = 0.4
-    ) +
-    geom_vline(
-      xintercept = median_value,
-      linetype = "dashed"
-    ) +
-    scale_x_continuous(
-      trans = "log10",
-      limits = xlims,
-      n.breaks = 10
-    ) +
-    labs(title = title, x = "Days", y = "Density") +
-    theme_bw() +
-    theme(
-      plot.title = element_text(face = "bold", hjust = 0.5),
-      axis.title = element_text(face = "bold", size = 12, color = "black"),
-      #axis.title.y = if (show_y) element_text() else element_blank(),
-      #axis.text.y  = if (show_y) element_text() else element_blank(),
-      #axis.ticks.y = if (show_y) element_line() else element_blank()
-    )
-}
-
-# ---------------------------
+ data_6 <- data_6 %>%
+     mutate(dif = as.numeric(dif_day_tx_symp))
+ # Global x limits (same for ALL plots)
+   xlims <- range(data_6$dif, na.rm = TRUE)
+   
+ # 2. Plot function
+   
+   hist_plot <- function(df, median_value, 
+                         fill_col = "grey70",
+                         show_y = TRUE, title = NULL) {
+     ggplot(df, aes(x = dif)) +
+       geom_histogram(
+         aes(y = after_stat(density)),
+         fill = fill_col,
+         color = "black",
+         alpha = 0.4
+         ) +
+       geom_vline(
+         xintercept = median_value,
+         linetype = "dashed"
+         ) +
+       scale_x_continuous(
+         trans = "log10",
+         limits = xlims,
+         n.breaks = 10
+         ) +
+       labs(title = title, x = "Days", y = "Density") +
+       theme_bw() +
+       theme(
+         plot.title = element_text(face = "bold", hjust = 0.5),
+         axis.title = element_text(face = "bold", size = 12, color = "black"),
+         #axis.title.y = if (show_y) element_text() else element_blank(),
+         #axis.text.y  = if (show_y) element_text() else element_blank(),
+         #axis.ticks.y = if (show_y) element_line() else element_blank()
+         )
+   }
+   
 # 3. Overall (single) plot
-# ---------------------------
-overall_median <- median(data_6$dif, na.rm = TRUE)
-
-p_overall <- hist_plot(
-  df = data_6,
-  median_value = overall_median,
-  fill_col = "plum3",
-  show_y = TRUE,
-  title = "Overall"
-) 
-
-# ---------------------------
+   
+ overall_median <- median(data_6$dif, na.rm = TRUE)
+ p_overall <- hist_plot(
+     df = data_6,
+     median_value = overall_median,
+     fill_col = "plum3",
+     show_y = TRUE,
+     title = "Overall"
+   ) 
+ 
 # 4. One plot per region
-# ---------------------------
-region_plots <- data_6 %>%
-  group_split(region) %>%
-  lapply(function(df) {
-    hist_plot(
-      df = df,
-      median_value = median(df$dif, na.rm = TRUE),
-      fill_col = "grey70",
-      show_y = FALSE,
-      title = unique(df$region)
-    ) +
-      theme(
-        axis.title = element_text(face = "bold", size = 12, color = "black")
-      )
-  })
+ 
+ region_plots <- data_6 %>%
+     group_split(region) %>%
+     lapply(function(df) {
+         hist_plot(
+             df = df,
+             median_value = median(df$dif, na.rm = TRUE),
+             fill_col = "grey70",
+             show_y = FALSE,
+             title = unique(df$region)
+           ) +
+             theme(
+                 axis.title = element_text(face = "bold", size = 12, color = "black")
+               )
+       })
+ 
+ # 5. Assemble final figure
+ 
+ final_plot <- ggarrange(p_overall + rremove("xlab"),
+                         region_plots[[1]] + rremove("xlab") + rremove("ylab"), 
+                         region_plots[[2]] + rremove("xlab") + rremove("ylab"),
+                         region_plots[[3]], 
+                         region_plots[[4]] + rremove("ylab"), 
+                         region_plots[[5]] + rremove("ylab")) 
 
-# ---------------------------
-# 5. Assemble final figure
-# ---------------------------
-final_plot <- ggarrange(p_overall + rremove("xlab"), 
-                        region_plots[[1]] + rremove("xlab") + rremove("ylab"), 
-                        region_plots[[2]] + rremove("xlab") + rremove("ylab"),
-                        region_plots[[3]], 
-                        region_plots[[4]] + rremove("ylab"), 
-                        region_plots[[5]] + rremove("ylab")) 
 
 
-ap <- ggarrange(p_1 + rremove("ylab") + rremove("xlab") ,
-                p_2 + rremove("ylab") + rremove("xlab") + theme(axis.text.y = element_blank()), 
-                p_3 + rremove("ylab") + rremove("xlab"), 
-                p_4 + rremove("ylab") + rremove("xlab") + theme(axis.text.y = element_blank()), 
-                ncol = 2, nrow = 2, common.legend = T, 
-                labels = c("<30 days","30–89 days", "90–119 days", "≥120 days"),
-                legend = "right", align = "hv",
-                label.x = 0.05,    
-                label.y = 0.98, 
-                font.label = list(size = 10, color = "black", face = "bold", family = NULL, position = "lef"))
 
 ap_annotated <- annotate_figure(ap, bottom = textGrob("Delay (days)", gp = gpar(cex = 1.3, fontface = "bold")),
                                 left = textGrob("Age group", rot = 90, vjust = 0.3, gp = gpar(cex = 1.3, fontface = "bold")))
@@ -1745,7 +1854,7 @@ ap_annotated <- annotate_figure(ap, bottom = textGrob("Delay (days)", gp = gpar(
 
 
 
-    
+##### Histogram ages and ...     
   ggplot(data = data_6, aes(x = as.numeric(dif_day_tx_dx))) +
     geom_histogram(
       #aes(y = after_stat(density)),
@@ -1756,3 +1865,319 @@ ap_annotated <- annotate_figure(ap, bottom = textGrob("Delay (days)", gp = gpar(
     scale_x_continuous(transform = "log10",
                        limits = c(0, 30)) +
     facet_wrap(~ region + year_period)
+  
+  
+############################# Smooth hazard estimates from a Cox model using kernel smoothing of the Nelson-Aalen estimator #######################################################
+  
+#### 1. Delay categories 
+  
+  data_6 <- data_6 %>% 
+    mutate(dif_treat_start_symp_cat_2 = case_when(dif_day_tx_symp >= 0 & dif_day_tx_dx <= 30 ~ "0-30 days",
+                                                  dif_day_tx_symp >= 31 & dif_day_tx_dx <= 60 ~ "31-60 days",
+                                                  dif_day_tx_symp >= 61 & dif_day_tx_dx <= 90 ~ "61-90 days",
+                                                  dif_day_tx_symp >= 91 & dif_day_tx_dx <= 120 ~ "91-120 days",
+                                                  dif_day_tx_symp >= 121 ~ "≥ 121 days",
+                                                  TRUE ~ NA),
+           dif_treat_start_symp_cat_2 = factor(dif_treat_start_symp_cat_2, 
+                                               levels = c("0-30 days",
+                                                          "31-60 days",
+                                                          "61-90 days",
+                                                          "91-120 days",
+                                                          "≥ 121 days"))) 
+  
+  data_6 %>% 
+    tabyl(dif_treat_start_symp_cat_2)
+  
+  fit <- coxph(Surv(dif_treat_outcome, death_vl) ~ dif_treat_start_symp_cat_2, data= data_6)
+  newdata <- data.frame(dif_treat_start_symp_cat_2 = levels(data_6$dif_treat_start_symp_cat_2))
+  haz <- suppressWarnings(coxphHaz(fit, newdata, level = 0.95)) 
+  plot(haz, xlab="Time since treatment initiatio (days)")
+  
+x1 <- as.data.frame(haz[[1]][["y"]]) %>% 
+  rename("0-30 days" = `haz[[1]][["y"]]`)
+
+x1$`31-60 days` <- haz[[2]][["y"]]
+x1$`61-90 days` <- haz[[3]][["y"]]
+x1$`91-120 days` <- haz[[4]][["y"]]
+x1$`≥120 days` <- haz[[5]][["y"]]
+x1$`time` <- haz[[1]][["x"]]
+
+g1 <- ggplot(x1, aes(x = time, y = `0-30 days`*10000)) +
+  geom_line(aes(color = "0-30 days"), linewidth = 1) +
+  geom_line(aes(y = `31-60 days`*10000, color = "31-60 days"), linewidth = 1) +
+  geom_line(aes(y = `61-90 days`*10000, color = "61-90 days"), linewidth = 1) +
+  geom_line(aes(y = `91-120 days`*10000, color = "91-120 days"), linewidth = 1) +
+  geom_line(aes(y = `≥120 days`*10000, color = "≥120 days"), linewidth = 1) +
+  #geom_vline(aes(xintercept = median(data_6$dif_day_tx_symp), color = "Median delay"), linetype = "dashed") +
+  geom_vline(aes(xintercept = 11), color = "purple3",
+             linetype = "dashed") +
+  labs(x = "Time from treatment initiation (days)", y = "Baseline hazard X 10,000 per day",
+       color = "Delay categories") +
+  scale_color_manual(breaks = c("0-30 days",
+                                "31-60 days",
+                                "61-90 days",
+                                "91-120 days",
+                                "≥120 days",
+                                "Peak of curves = 11 days"),
+                     values = c("0-30 days" = "darkgreen",
+                                "31-60 days" = "skyblue2",
+                                "61-90 days" = "gold2",
+                                "91-120 days" = "orange2",
+                                "≥120 days" = "brown2"
+                                #"Peak of curves = 11 days" = "purple3"
+                                )
+  ) +
+  scale_x_continuous(n.breaks = 10) +
+  scale_y_continuous(limits = c(0, 50)) +
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 14, color = "black", face = "bold"),
+    axis.text = element_text(size = 12, color = "black"),
+    legend.title = element_text(size = 14, color ="black", face = "bold"),
+    legend.text = element_text(size = 12, color = "black"),
+    legend.position = c(0.95, 0.95),          # top-right inside
+    legend.justification = c(1, 1),           # anchor legend's top-right corner
+    legend.background = element_rect(fill = alpha("white", 0.7), color = "grey80"),
+    legend.key = element_rect(fill = "transparent", color = NA)
+  )
+
+#### Hazard plot by gender
+
+data_6 <- data_6 %>% 
+  mutate(gender = factor(gender, levels = c("Female", "Male")))
+
+fit_2 <- coxph(Surv(dif_treat_outcome, death_vl) ~ gender, data= data_6)
+newdata_2 <- data.frame(gender = levels(data_6$gender))
+haz_2 <- suppressWarnings(coxphHaz(fit_2, newdata_2, level = 0.95)) 
+plot(haz_2, xlab="Time since treatment initiatio (days)")
+
+x2 <- as.data.frame(haz_2[[1]][["y"]]) %>% 
+  rename("Female" = `haz_2[[1]][["y"]]`)
+
+x2$Male <- haz_2[[2]][["y"]]
+x2$`time` <- haz_2[[1]][["x"]]
+
+g2 <- ggplot(x2, aes(x = time, y = Female*10000)) +
+  geom_line(aes(color = "Female"), linewidth = 1) +
+  geom_line(aes(y = Male*10000, color = "Male"), linewidth = 1) +
+  geom_vline(aes(xintercept = 11), color = "purple3",
+             linetype = "dashed") +
+  labs(x = "Time from treatment initiation (days)", y = "Baseline hazard X 10,000 per day",
+       color = "Gender") +
+  scale_color_manual(breaks = c("Female",
+                                "Male",
+                                "Peak of curves = 11 days"),
+                     values = c("Male" = "skyblue3",
+                                "Female" = "lightpink2"
+                                #"Peak of curves = 11 days" = "purple3"
+                                )
+  ) +
+  scale_x_continuous(n.breaks = 10) +
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 14, color = "black", face = "bold"),
+    axis.text = element_text(size = 12, color = "black"),
+    legend.title = element_text(size = 14, color ="black", face = "bold"),
+    legend.text = element_text(size = 12, color = "black"),
+    legend.position = c(0.95, 0.95),          # top-right inside
+    legend.justification = c(1, 1),           # anchor legend's top-right corner
+    legend.background = element_rect(fill = alpha("white", 0.7), color = "grey80"),
+    legend.key = element_rect(fill = "transparent", color = NA)
+  )
+
+
+#### Hazard plot by age group
+
+data_6 <- data_6 
+
+fit_3 <- coxph(Surv(dif_treat_outcome, death_vl) ~ age_group_2, 
+               data= data_6)
+newdata_3 <- data.frame(age_group_2 = levels(data_6$age_group_2))
+haz_3 <- suppressWarnings(coxphHaz(fit_3, newdata_3, level = 0.95)) 
+plot(haz_3, xlab="Time since treatment initiatio (days)")
+
+x3 <- as.data.frame(haz_3[[1]][["y"]]) %>% 
+  rename("0-1" = `haz_3[[1]][["y"]]`)
+
+x3$`1-5` <- haz_3[[2]][["y"]]
+x3$`5-15` <- haz_3[[3]][["y"]]
+x3$`15-45` <- haz_3[[4]][["y"]]
+x3$`>45` <- haz_3[[5]][["y"]]
+x3$`time` <- haz_3[[1]][["x"]]
+
+g3 <- ggplot(x3, aes(x = time, y = `0-1`*10000)) +
+  geom_line(aes(color = "0-1"), linewidth = 1) +
+  geom_line(aes(y = `1-5`*10000, color = "1-5"), linewidth = 1) +
+  geom_line(aes(y = `5-15`*10000, color = "5-15"), linewidth = 1) +
+  geom_line(aes(y = `15-45`*10000, color = "15-45"), linewidth = 1) +
+  geom_line(aes(y = `>45`*10000, color = ">45"), linewidth = 1) +
+  #geom_vline(aes(xintercept = median(data_6$dif_day_tx_symp), color = "Median delay"), linetype = "dashed") +
+  geom_vline(aes(xintercept = 11), color = "purple3",
+             linetype = "dashed") +
+  labs(x = "Time from treatment initiation (days)", y = "Baseline hazard X 10,000 per day",
+       color = "Age group") +
+  scale_color_manual(breaks = c("0-1",
+                                "1-5",
+                                "5-15",
+                                "15-45",
+                                ">45",
+                                "Peak of curves = 11 days"),
+                     values = c("0-1" = "chocolate2",
+                                "1-5" = "deepskyblue",
+                                "5-15" = "aquamarine2",
+                                "15-45" = "lightpink1",
+                                ">45" = "goldenrod2"
+                                #"Peak of curves = 11 days" = "purple3"
+                                )
+  ) +
+  scale_x_continuous(n.breaks = 10) +
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 14, color = "black", face = "bold"),
+    axis.text = element_text(size = 12, color = "black"),
+    legend.title = element_text(size = 14, color ="black", face = "bold"),
+    legend.text = element_text(size = 12, color = "black"),
+    legend.position = c(0.95, 0.95),          # top-right inside
+    legend.justification = c(1, 1),           # anchor legend's top-right corner
+    legend.background = element_rect(fill = alpha("white", 0.7), color = "grey80"),
+    legend.key = element_rect(fill = "transparent", color = NA)
+  )
+
+
+#### Hazard distribution by region
+
+data_6 <- data_6 %>% 
+  mutate(region = factor(region))
+
+fit_4 <- coxph(Surv(dif_treat_outcome, death_vl) ~ region, 
+               data= data_6)
+
+newdata_4 <- data.frame(region = levels(data_6$region))
+haz_4 <- suppressWarnings(coxphHaz(fit_4, newdata_4, level = 0.95)) 
+plot(haz_4, xlab="Time since treatment initiatio (days)")
+
+x4 <- as.data.frame(haz_4[[1]][["y"]]) %>% 
+  rename("Center-West" = `haz_4[[1]][["y"]]`)
+
+x4$North <- haz_4[[2]][["y"]]
+x4$Northeast <- haz_4[[3]][["y"]]
+x4$South <- haz_4[[4]][["y"]]
+x4$Southeast <- haz_4[[5]][["y"]]
+x4$`time` <- haz_4[[1]][["x"]]
+
+g4 <- ggplot(x4, aes(x = time, y = `Center-West`* 10000)) +
+  geom_line(aes(color = "Center-West"), linewidth = 1) +
+  geom_line(aes(y = North * 10000, color = "North"), linewidth = 1) +
+  geom_line(aes(y = Northeast * 10000, color = "Northeast"), linewidth = 1) +
+  geom_line(aes(y = South * 10000, color = "South"), linewidth = 1) +
+  geom_line(aes(y = Southeast * 10000, color = "Southeast"), linewidth = 1) +
+  geom_vline(aes(xintercept = 11), color = "purple3",
+             linetype = "dashed") +
+  labs(
+    x = "Time from treatment initiation (days)", 
+    y = "Baseline hazard X 10,000 per day",
+    color = "Region"
+  ) +
+  scale_color_manual(
+    breaks = c("Center-West",
+               "North",
+               "Northeast",
+               "South",
+               "Southeast"),
+               #"Peak of curves = 11 days"),
+    values = c("Center-West" = "tomato1",
+               "North" = "cornflowerblue",
+               "Northeast" = "palegreen2",
+               "South" = "gold2",
+               "Southeast" = "lightpink2"
+               #"Peak of curves = 11 days" = "purple3"
+               )
+  ) +
+  scale_x_continuous(n.breaks = 10) +
+  scale_y_continuous(limits = c(0, 50)) +
+  theme_bw() +
+  theme(
+    axis.title.y = element_text(size = 14, color = "white", face = "bold"),
+    axis.title.x = element_text(size = 14, color = "black", face = "bold"),
+    axis.text = element_text(size = 12, color = "black"),
+    legend.title = element_text(size = 14, color = "black", face = "bold"),
+    legend.text = element_text(size = 12, color = "black"),
+    legend.position = c(0.95, 0.95),          # top-right inside
+    legend.justification = c(1, 1),           # anchor legend's top-right corner
+    legend.background = element_rect(fill = alpha("white", 0.7), color = "grey80"),
+    legend.key = element_rect(fill = "transparent", color = NA)
+  )
+
+g4
+
+#### Hazard distribution by hiv
+
+data_6 <- data_6 %>% 
+  mutate(hiv_2 = factor(hiv_2, levels = c("Yes", "No", "Unknown")))
+
+fit_5 <- coxph(Surv(dif_treat_outcome, death_vl) ~ hiv_2, 
+               data= data_6)
+
+newdata_5 <- data.frame(hiv_2 = levels(data_6$hiv_2))
+haz_5 <- suppressWarnings(coxphHaz(fit_5, newdata_5, level = 0.95)) 
+plot(haz_5, xlab="Time since treatment initiatio (days)")
+
+x5 <- as.data.frame(haz_5[[1]][["y"]]) %>% 
+  rename("Yes" = `haz_5[[1]][["y"]]`)
+
+x5$No <- haz_5[[2]][["y"]]
+x5$Unknown <- haz_5[[3]][["y"]]
+x5$`time` <- haz_5[[1]][["x"]]
+
+g5 <- ggplot(x5, aes(x = time, y = `Yes`* 10000)) +
+  geom_line(aes(color = "Yes"), linewidth = 1) +
+  geom_line(aes(y = No * 10000, color = "No"), linewidth = 1) +
+  geom_line(aes(y = Unknown * 10000, color = "Unknown"), linewidth = 1) +
+  geom_vline(aes(xintercept = 11), color = "purple3",
+             linetype = "dashed") +
+  labs(
+    x = "Time from treatment initiation (days)", 
+    y = "Baseline hazard X 10,000 per day",
+    color = "HIV status"
+  ) +
+  scale_color_manual(
+    breaks = c("Yes",
+               "No",
+               "Unknown"),
+    #"Peak of curves = 11 days"),
+    values = c("Yes" = "tomato2",
+               "No" = "springgreen4",
+               "Unknown" = "grey"
+               #"Peak of curves = 11 days" = "purple3"
+    )
+  ) +
+  scale_x_continuous(n.breaks = 10) +
+  scale_y_continuous(limits = c(0, 50)) +
+  theme_bw() +
+  theme(
+    axis.title.y = element_text(size = 14, color = "white", face = "bold"),
+    axis.title.x = element_text(size = 14, color = "black", face = "bold"),
+    axis.text = element_text(size = 12, color = "black"),
+    legend.title = element_text(size = 14, color = "black", face = "bold"),
+    legend.text = element_text(size = 12, color = "black"),
+    legend.position = c(0.95, 0.95),          # top-right inside
+    legend.justification = c(1, 1),           # anchor legend's top-right corner
+    legend.background = element_rect(fill = alpha("white", 0.7), color = "grey80"),
+    legend.key = element_rect(fill = "transparent", color = NA)
+  )
+
+g5
+
+#label_ys <- c(1, 1.01, 1, 1.01)
+#label_xs <- c(0, -0.005, 0, -0.005)
+hazard <- ggarrange(g1 + rremove("xlab"), 
+          g5, 
+          g3, 
+          g4, 
+          ncol = 2, nrow = 2, labels = "AUTO")
+
+ggsave(hazard, path = here("figures and tables"),
+       width = 10, height = 8, dpi = 300,
+       file = "hazard_main_feat.png")
+
+

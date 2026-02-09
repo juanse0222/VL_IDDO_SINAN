@@ -9,6 +9,7 @@ library(survminer)
 library(sjPlot)
 library(splines)
 
+######################################## Adjust variables and set up database ###################################################################
 ### Import work database final for running up the model
 data_6 <- import(here("data base and clean", "data_6.rds")) 
 
@@ -112,7 +113,7 @@ data_ost_2 <- data_ost %>%
 
 state_100 <- unique(data_ost$federative_unit[data_ost$n < 100])
 
-######################################################################################################################
+######################################## Adjust variables and set up database opt 2 ##############################################################################
 
 ### Adjusting and creating new variables to include in the models 
 
@@ -152,14 +153,14 @@ data_m1 <- data_8 %>%
 
 export(data_8, here("data base and clean", "data_8.rds")) ### Database to work with time between treatment initiation and death by VL
 
-###########################################################################################################################################
+######################################## Unadjust cox regression model by HIV status and Overall ###################################################################################################
 
 ### Model overall - including HIV patients and unadjusted
 
 data_m1 <- data_8 %>% 
   filter(!is.na(death_vl)) %>% 
   filter(!hiv_2 == "Yes") %>% 
-  select(dif_day_tx_symp, dif_treat_start_symp_cat_2, dif_treat_outcome, age_group_2,
+  dplyr::select(dif_day_tx_symp, dif_treat_start_symp_cat_2, dif_treat_outcome, age_group_2,
          age_years, gender_2, hiv_3, hiv_2, gender, death_vl, name_tx, severe_2, race_2,
          federative_unit, education_level, region, race_2) 
 
@@ -316,12 +317,11 @@ combine_model_1 <- ggplot(newd, aes(dif_day_tx_symp, hr, color = "No HIV")) +
   ) 
 
 combine_model_1
-############################################################################################################
+######################################## Adjusted cox regression model using coxph and predict functions#######################################
+#### Model created to evaluate direction and distribution of delay treatment initiation adjusted by 
+#### age, gender, region, education level and race
 
-###############################################################################
 ## 1) Variables to adjust for and factor level ordering
-###############################################################################
-
 var_order_2 <- c(
   "age_group_2", "gender", "region",
   "education_level", "race_2"
@@ -345,15 +345,11 @@ level_orders <- list(
   race_2 = c("Brown", "White", "Afro-descendants", "Yellow", "Indigenous", "Unknown")
 )
 
-###############################################################################
 ## 2) Modelling dataset
-###############################################################################
 
 data_mort <- data_m1
 
-###############################################################################
 ## 3) Enforce factor level orders (reference = first level)
-###############################################################################
 
 for (v in var_order_2) {
   if (!is.null(level_orders[[v]])) {
@@ -363,9 +359,7 @@ for (v in var_order_2) {
   }
 }
 
-###############################################################################
 ## 4) Cox proportional hazards model with spline on treatment delay
-###############################################################################
 
 m2 <- coxph(
   Surv(dif_treat_outcome, death_vl) ~
@@ -379,9 +373,7 @@ str(m2)
 
 summary(m2)
 
-###############################################################################
 ## 5) Prediction grid over treatment delay (reference profile fixed)
-###############################################################################
 
 delay_seq <- seq(
   quantile(data_mort$dif_day_tx_symp, 0.01, na.rm = TRUE),
@@ -402,9 +394,7 @@ for (v in var_order_2) {
   newdat[[v]] <- factor(newdat[[v]], levels = levels(data_mort[[v]]))
 }
 
-###############################################################################
 ## 6) Adjusted hazard ratios (reference = shortest delay)
-###############################################################################
 
 lp <- predict(m2, newdata = newdat, type = "lp", se.fit = TRUE)
 
@@ -421,9 +411,7 @@ newdat <- newdat %>%
     upper = exp(lp$fit - ref_lp + 1.96 * lp$se.fit)
   )
 
-###############################################################################
 ## 7) Publication-ready plot: hazard ratio vs treatment delay
-###############################################################################
 
 ggplot(newdat, aes(x = dif_day_tx_symp, y = hr)) +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
@@ -450,10 +438,12 @@ ggplot(newdat, aes(x = dif_day_tx_symp, y = hr)) +
   )
   
   
-####################################################################################################################################
+######################################## Logistic regression model by severe symptoms ############################################################################################
 
-### Logistic regression model based on symptoms
-data_symp_no_hiv <- data_8 %>% 
+### Selecting symptoms associated with severity and presentation 
+### 1. Patients HIV positive
+
+data_symp_hiv <- data_8 %>% 
   mutate(jaundice_2 = case_when(jaundice == 1 ~ 1,
                                 jaundice == 2 ~ 0,
                                 TRUE ~ NA),
@@ -465,13 +455,10 @@ data_symp_no_hiv <- data_8 %>%
                              TRUE ~NA)) %>% 
   filter(!hiv_2 == "Yes")
 
-
-### Other way to approach of the model using Predic instead of predict 
-
-### Bleeding model option 2
+### Bleeding model 1
 
 data_bleeding <- data_symp_no_hiv %>% 
-  select(bleeding, dif_day_tx_symp) %>% 
+  dplyr::select(bleeding, dif_day_tx_symp) %>% 
   filter(!is.na(bleeding))
 
 dd <- datadist(data_bleeding)
@@ -502,10 +489,10 @@ bleeding_m1 <- ggplot(p_bleeding_df, aes(dif_day_tx_symp, yhat)) +
 
 bleeding_m1
 
-### Jaundice
+### Jaundice model 1
 data_jaundice <- data_symp_no_hiv %>% 
-  select(jaundice_2, dif_day_tx_symp) %>% 
-  filter(!is.na(jaundice_2))
+  dplyr::select(jaundice_2, dif_day_tx_symp) %>% 
+  dplyr::filter(!is.na(jaundice_2))
 
 dd <- datadist(data_jaundice)
 options(datadist = "dd")
@@ -535,10 +522,10 @@ jaundice_m1 <- ggplot(p_jaundice_df, aes(dif_day_tx_symp, yhat)) +
 
 jaundice_m1
 
-### oedema
+### oedema model 1
 
 data_oedema <- data_symp_no_hiv %>%
-  select(dif_day_tx_symp, edema_3) %>% 
+  dplyr::select(dif_day_tx_symp, edema_3) %>% 
   filter(!is.na(edema_3))
 
 #oedema_m <- glm(formula = edema_3 ~ rcs(dif_day_tx_symp, 4), family = "binomial",
@@ -626,7 +613,10 @@ symptoms_m1 <- ggplot(
 symptoms_m1
   
 
-data_symp_hiv <- data_8 %>% 
+
+### 1. Patients not HIV positive
+
+data_symp_no_hiv <- data_8 %>% 
   mutate(jaundice_2 = case_when(jaundice == 1 ~ 1,
                                 jaundice == 2 ~ 0,
                                 TRUE ~ NA),
@@ -636,32 +626,29 @@ data_symp_hiv <- data_8 %>%
          edema_3 = case_when(edema == 1 ~ 1,
                              edema == 2 ~ 0,
                              TRUE ~NA)) %>% 
-  filter(hiv_2 == "Yes")
+  filter(!hiv_2 == "No")
 
+### Bleeding model 2
 
-### Other way to approach of the model using Predic instead of predict 
-
-### Bleeding model option 2
-
-data_bleeding <- data_symp_hiv %>% 
-  select(bleeding, dif_day_tx_symp) %>% 
+data_bleeding_2 <- data_symp_no_hiv %>% 
+  dplyr::select(bleeding, dif_day_tx_symp) %>% 
   filter(!is.na(bleeding))
 
-dd <- datadist(data_bleeding)
+dd <- datadist(data_bleeding_2)
 options(datadist = "dd")
 
-bleeding_fit <- lrm(bleeding ~ rcs(dif_day_tx_symp, 4), data = data_bleeding)
+bleeding_fit <- lrm(bleeding ~ rcs(dif_day_tx_symp, 4), data = data_bleeding_2)
 
-p_bleeding <- Predict(
+p_bleeding_2 <- Predict(
   bleeding_fit,
   dif_day_tx_symp,
   fun = exp,        # odds ratios
   ref.zero = TRUE   # reference = median
 )
 
-p_bleeding_df <- as.data.frame(p_bleeding)
+p_bleeding_df_2 <- as.data.frame(p_bleeding_2)
 
-bleeding_m1 <- ggplot(p_bleeding_df, aes(dif_day_tx_symp, yhat)) +
+bleeding_m2 <- ggplot(p_bleeding_df_2, aes(dif_day_tx_symp, yhat)) +
   geom_line(linewidth = 1) +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
   #geom_hline(yintercept = 1, linetype = "dashed") +
@@ -673,28 +660,28 @@ bleeding_m1 <- ggplot(p_bleeding_df, aes(dif_day_tx_symp, yhat)) +
 #scale_x_continuous(n.breaks = 8) +
 #scale_y_continuous(n.breaks = 10, limits = c(0.75, 2.8))
 
-bleeding_m1
+bleeding_m2
 
-### Jaundice
-data_jaundice <- data_symp_hiv %>% 
-  select(jaundice_2, dif_day_tx_symp) %>% 
-  filter(!is.na(jaundice_2))
+### Jaundice model 1
+data_jaundice_2 <- data_symp_no_hiv %>% 
+  dplyr::select(jaundice_2, dif_day_tx_symp) %>% 
+  dplyr::filter(!is.na(jaundice_2))
 
-dd <- datadist(data_jaundice)
+dd <- datadist(data_jaundice_2)
 options(datadist = "dd")
 
-jaundice_fit <- lrm(jaundice_2 ~ rcs(dif_day_tx_symp, 4), data = data_jaundice)
+jaundice_fit_2 <- lrm(jaundice_2 ~ rcs(dif_day_tx_symp, 4), data = data_jaundice_2)
 
-p_jaundice <- Predict(
-  jaundice_fit,
+p_jaundice_2 <- Predict(
+  jaundice_fit_2,
   dif_day_tx_symp,
   fun = exp,        # odds ratios
   ref.zero = TRUE   # reference = median
 )
 
-p_jaundice_df <- as.data.frame(p_jaundice)
+p_jaundice_df_2 <- as.data.frame(p_jaundice_2)
 
-jaundice_m1 <- ggplot(p_jaundice_df, aes(dif_day_tx_symp, yhat)) +
+jaundice_m2 <- ggplot(p_jaundice_df_2, aes(dif_day_tx_symp, yhat)) +
   geom_line(linewidth = 1) +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
   #geom_hline(yintercept = 1, linetype = "dashed") +
@@ -706,29 +693,29 @@ jaundice_m1 <- ggplot(p_jaundice_df, aes(dif_day_tx_symp, yhat)) +
 #scale_x_continuous(n.breaks = 8) +
 #scale_y_continuous(n.breaks = 10, limits = c(0.75, 2.8))
 
-jaundice_m1
+jaundice_m2
 
-### oedema
+### oedema model 1
 
-data_oedema <- data_symp_hiv %>%
-  select(dif_day_tx_symp, edema_3) %>% 
+data_oedema_2 <- data_symp_no_hiv %>%
+  dplyr::select(dif_day_tx_symp, edema_3) %>% 
   filter(!is.na(edema_3))
 
 #oedema_m <- glm(formula = edema_3 ~ rcs(dif_day_tx_symp, 4), family = "binomial",
 #                 data = data_oedema)
 
-edema_fit <- lrm(edema_3 ~ rcs(dif_day_tx_symp, 4), data = data_oedema)
+edema_fit_2 <- lrm(edema_3 ~ rcs(dif_day_tx_symp, 4), data = data_oedema_2)
 
-p_edema <- Predict(
-  edema_fit,
+p_edema_2 <- Predict(
+  edema_fit_2,
   dif_day_tx_symp,
   fun = exp,        # odds ratios
   ref.zero = TRUE   # reference = median
 )
 
-p_edema_df <- as.data.frame(p_edema)
+p_edema_df_2 <- as.data.frame(p_edema_2)
 
-edema <- ggplot(p_edema_df, aes(dif_day_tx_symp, yhat)) +
+edema_2 <- ggplot(p_edema_df_2, aes(dif_day_tx_symp, yhat)) +
   geom_line(linewidth = 1) +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
   #geom_hline(yintercept = 1, linetype = "dashed") +
@@ -740,10 +727,10 @@ edema <- ggplot(p_edema_df, aes(dif_day_tx_symp, yhat)) +
 #scale_x_continuous(n.breaks = 8) +
 #scale_y_continuous(n.breaks = 10, limits = c(0.75, 2.8))
 
-edema
+edema_2
 
 symptoms_m2 <- ggplot(
-  data = p_bleeding_df,
+  data = p_bleeding_df_2,
   aes(dif_day_tx_symp, yhat)
 ) +
   geom_line(aes(color = "Bleeding"), linewidth = 1) +
@@ -753,12 +740,12 @@ symptoms_m2 <- ggplot(
   ) +
   
   geom_line(
-    data = p_jaundice_df,
+    data = p_jaundice_df_2,
     aes(dif_day_tx_symp, yhat, color = "Jaundice"),
     linewidth = 1,
   ) +
   geom_ribbon(
-    data = p_jaundice_df,
+    data = p_jaundice_df_2,
     aes(
       x = dif_day_tx_symp,
       ymin = lower,
@@ -769,12 +756,12 @@ symptoms_m2 <- ggplot(
   ) +
   
   geom_line(
-    data = p_edema_df,
+    data = p_edema_df_2,
     aes(dif_day_tx_symp, yhat, color = "Oedema"),
     linewidth = 1,
   ) +
   geom_ribbon(
-    data = p_edema_df,
+    data = p_edema_df_2,
     aes(
       x = dif_day_tx_symp,
       ymin = lower,
@@ -790,15 +777,18 @@ symptoms_m2 <- ggplot(
     y = "Odds Ratio", 
     color = "Symptoms"
   ) +
-  theme_bw() +
   scale_y_continuous(limits = c(0, 5)) +
+  theme_bw() +
   scale_color_manual(values = c("Jaundice" = "orange2", 
                                 "Bleeding" = "brown2", 
                                 "Oedema" = "darkgreen")) 
 
 symptoms_m2
 
-data_symp_overall <- data_8 %>% 
+
+#### 3. Overall model (HIV, No HIV and Unknown HIV)
+
+data_symp_overall_hiv <- data_8 %>% 
   mutate(jaundice_2 = case_when(jaundice == 1 ~ 1,
                                 jaundice == 2 ~ 0,
                                 TRUE ~ NA),
@@ -809,30 +799,27 @@ data_symp_overall <- data_8 %>%
                              edema == 2 ~ 0,
                              TRUE ~NA)) 
 
+### Bleeding model option 3
 
-### Other way to approach of the model using Predic instead of predict 
-
-### Bleeding model option 2
-
-data_bleeding <- data_symp_overall %>% 
-  select(bleeding, dif_day_tx_symp) %>% 
+data_bleeding_3 <- data_symp_overall_hiv %>% 
+  dplyr::select(bleeding, dif_day_tx_symp) %>% 
   filter(!is.na(bleeding))
 
-dd <- datadist(data_bleeding)
+dd <- datadist(data_bleeding_3)
 options(datadist = "dd")
 
-bleeding_fit <- lrm(bleeding ~ rcs(dif_day_tx_symp, 4), data = data_bleeding)
+bleeding_fit_3 <- lrm(bleeding ~ rcs(dif_day_tx_symp, 4), data = data_bleeding_3)
 
-p_bleeding <- Predict(
-  bleeding_fit,
+p_bleeding_3 <- Predict(
+  bleeding_fit_3,
   dif_day_tx_symp,
   fun = exp,        # odds ratios
   ref.zero = TRUE   # reference = median
 )
 
-p_bleeding_df <- as.data.frame(p_bleeding)
+p_bleeding_df_3 <- as.data.frame(p_bleeding_3)
 
-bleeding_m1 <- ggplot(p_bleeding_df, aes(dif_day_tx_symp, yhat)) +
+bleeding_m3 <- ggplot(p_bleeding_df_3, aes(dif_day_tx_symp, yhat)) +
   geom_line(linewidth = 1) +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
   #geom_hline(yintercept = 1, linetype = "dashed") +
@@ -844,28 +831,28 @@ bleeding_m1 <- ggplot(p_bleeding_df, aes(dif_day_tx_symp, yhat)) +
 #scale_x_continuous(n.breaks = 8) +
 #scale_y_continuous(n.breaks = 10, limits = c(0.75, 2.8))
 
-bleeding_m1
+bleeding_m3
 
 ### Jaundice
-data_jaundice <- data_symp_overall %>% 
-  select(jaundice_2, dif_day_tx_symp) %>% 
+data_jaundice_3 <- data_symp_overall_hiv %>% 
+  dplyr::select(jaundice_2, dif_day_tx_symp) %>% 
   filter(!is.na(jaundice_2))
 
-dd <- datadist(data_jaundice)
+dd <- datadist(data_jaundice_3)
 options(datadist = "dd")
 
-jaundice_fit <- lrm(jaundice_2 ~ rcs(dif_day_tx_symp, 4), data = data_jaundice)
+jaundice_fit_3 <- lrm(jaundice_2 ~ rcs(dif_day_tx_symp, 4), data = data_jaundice_3)
 
-p_jaundice <- Predict(
-  jaundice_fit,
+p_jaundice_3 <- Predict(
+  jaundice_fit_3,
   dif_day_tx_symp,
   fun = exp,        # odds ratios
   ref.zero = TRUE   # reference = median
 )
 
-p_jaundice_df <- as.data.frame(p_jaundice)
+p_jaundice_df_3 <- as.data.frame(p_jaundice_3)
 
-jaundice_m1 <- ggplot(p_jaundice_df, aes(dif_day_tx_symp, yhat)) +
+jaundice_m3 <- ggplot(p_jaundice_df_3, aes(dif_day_tx_symp, yhat)) +
   geom_line(linewidth = 1) +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
   #geom_hline(yintercept = 1, linetype = "dashed") +
@@ -877,29 +864,29 @@ jaundice_m1 <- ggplot(p_jaundice_df, aes(dif_day_tx_symp, yhat)) +
 #scale_x_continuous(n.breaks = 8) +
 #scale_y_continuous(n.breaks = 10, limits = c(0.75, 2.8))
 
-jaundice_m1
+jaundice_m3
 
 ### oedema
 
-data_oedema <- data_symp_overall %>%
-  select(dif_day_tx_symp, edema_3) %>% 
+data_oedema_3 <- data_symp_overall_hiv %>%
+  dplyr::select(dif_day_tx_symp, edema_3) %>% 
   filter(!is.na(edema_3))
 
 #oedema_m <- glm(formula = edema_3 ~ rcs(dif_day_tx_symp, 4), family = "binomial",
 #                 data = data_oedema)
 
-edema_fit <- lrm(edema_3 ~ rcs(dif_day_tx_symp, 4), data = data_oedema)
+edema_fit_3 <- lrm(edema_3 ~ rcs(dif_day_tx_symp, 4), data = data_oedema_3)
 
-p_edema <- Predict(
-  edema_fit,
+p_edema_3 <- Predict(
+  edema_fit_3,
   dif_day_tx_symp,
   fun = exp,        # odds ratios
   ref.zero = TRUE   # reference = median
 )
 
-p_edema_df <- as.data.frame(p_edema)
+p_edema_df_3 <- as.data.frame(p_edema_3)
 
-edema <- ggplot(p_edema_df, aes(dif_day_tx_symp, yhat)) +
+edema_3 <- ggplot(p_edema_df_3, aes(dif_day_tx_symp, yhat)) +
   geom_line(linewidth = 1) +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
   #geom_hline(yintercept = 1, linetype = "dashed") +
@@ -911,10 +898,10 @@ edema <- ggplot(p_edema_df, aes(dif_day_tx_symp, yhat)) +
 #scale_x_continuous(n.breaks = 8) +
 #scale_y_continuous(n.breaks = 10, limits = c(0.75, 2.8))
 
-edema
+edema_3
 
 symptoms_m3 <- ggplot(
-  data = p_bleeding_df,
+  data = p_bleeding_df_3,
   aes(dif_day_tx_symp, yhat)
 ) +
   geom_line(aes(color = "Bleeding"), linewidth = 1) +
@@ -924,12 +911,12 @@ symptoms_m3 <- ggplot(
   ) +
   
   geom_line(
-    data = p_jaundice_df,
+    data = p_jaundice_df_3,
     aes(dif_day_tx_symp, yhat, color = "Jaundice"),
     linewidth = 1,
   ) +
   geom_ribbon(
-    data = p_jaundice_df,
+    data = p_jaundice_df_3,
     aes(
       x = dif_day_tx_symp,
       ymin = lower,
@@ -940,12 +927,12 @@ symptoms_m3 <- ggplot(
   ) +
   
   geom_line(
-    data = p_edema_df,
+    data = p_edema_df_3,
     aes(dif_day_tx_symp, yhat, color = "Oedema"),
     linewidth = 1,
   ) +
   geom_ribbon(
-    data = p_edema_df,
+    data = p_edema_df_3,
     aes(
       x = dif_day_tx_symp,
       ymin = lower,
@@ -969,19 +956,19 @@ symptoms_m3 <- ggplot(
 
 symptoms_m3
 
-final_models <- ggarrange(symptoms_m1 + rremove("xlab") + rremove("ylab") + 
+final_models <- ggarrange(symptoms_m1 + rremove("ylab") + rremove("xlab") + 
                             scale_y_continuous(limits = c(0.5, 5)),
                           symptoms_m2 + rremove("xlab") + rremove("ylab") +
                             scale_y_continuous(limits = c(0.5, 5)), 
                           symptoms_m3 + rremove("xlab") + rremove("ylab") +
-                            scale_y_continuous(limits = c(0.5, 5)), 
-                          common.legend = T, labels = list("a)", "b)", "c)"),
+                            scale_y_continuous(limits = c(0.5, 5)), labels = "AUTO",
                           nrow = 1, legend = "right", hjust = -0.5,
+                          common.legend = T,
                           font.label = list(size = 14, color = "black",
                                             face = "bold", family = "Times New Roman",
                                             position = "bottom")) 
 
-annotate_figure(final_models, 
+symptoms <- annotate_figure(final_models, 
                 bottom = textGrob("Delay between symptoms onset and treatment",
                                   gp = gpar(fontsize = 14,
                                             fontface = "bold",
@@ -995,10 +982,10 @@ annotate_figure(final_models,
                                           fontfamily = "Times New Roman"), 
                                 rot = 90,vjust = 1), 
                 )
-
-#######################################################################################################################################
-
-#### Model based on sever and complications taken cardinal symptoms. 
+ggsave(symptoms, path = here("figures and tables"),
+       width = 10, height = 8, dpi = 300,
+       file = "severe_symptoms_color_graph.png")
+######################################## Model 2 (figure S2) based on sever and complications taken cardinal symptoms ###############################################################
 
 data_complication <- data_8 %>% 
   mutate(complication_2 = if_else(edema == 1|jaundice == 1|hemorrhagic_phenomena == 1, 1, 0),
@@ -1015,7 +1002,7 @@ fit_severity_model <- function(
   {
   
   df <- data %>%
-    select(all_of(c(outcome, "dif_day_tx_symp"))) %>%
+    dplyr::select(all_of(c(outcome, "dif_day_tx_symp"))) %>%
     filter(!is.na(.data[[outcome]]),
            !is.na(dif_day_tx_symp))
   
@@ -1075,7 +1062,6 @@ final_severity <- ggpubr::ggarrange(
   )
 
 
-
 ### Model patients with HIV
 
 severity_plots <- purrr::pmap(
@@ -1131,278 +1117,189 @@ panel_model_complications
 
 
 
+### Model patients with HIV
+
+severity_plots <- purrr::pmap(
+  severity_specs,
+  fit_severity_model,
+  data = data_complication %>% filter(hiv_2 == "Yes")
+)
+
+severity_plots[[1]]  # == severity_m1
+severity_plots[[2]]  # == severity_m2
+severity_plots[[3]]  # == severity_m3
+
+names(severity_plots) <- severity_specs$y_label
+
+final_severity_2 <- ggpubr::ggarrange(
+  plotlist = severity_plots,
+  nrow = 1,
+  common.legend = FALSE
+)
+
+final_severity_2
 
 
+### Model patients without HIV 
 
+severity_plots <- purrr::pmap(
+  severity_specs,
+  fit_severity_model,
+  data = data_complication %>% filter(hiv_2 == "No")
+)
 
+severity_plots[[1]]  # == severity_m1
+severity_plots[[2]]  # == severity_m2
+severity_plots[[3]]  # == severity_m3
 
+names(severity_plots) <- severity_specs$y_label
 
+final_severity_3 <- ggpubr::ggarrange(
+  plotlist = severity_plots,
+  nrow = 1,
+  common.legend = FALSE
+)
 
+final_severity_3
 
+panel_model_complications <- ggarrange(final_severity, 
+                                       final_severity_2, 
+                                       final_severity_3, 
+                                       nrow = 3, labels = "AUTO"
+)
 
-## --------------------------------------------------
-## 2. Function: fit spline model + predict + plot
-##    (HIV used ONLY as a filter)
-## --------------------------------------------------
+panel_model_complications
 
-fit_severity_model <- function(
+################################################# Model by symptoms and HV status #############################################################################
+
+data_symptoms <- data_8 %>% 
+  dplyr::select(dif_day_tx_symp, fever, pallor, weakness, edema, weight_loss, cough_and_dyspnea,
+                increase_infection, spleen_enlargement, hemorrhagic_phenomena, liver_enlargement, jaundice, hiv_2)
+
+fit_symptoms_model <- function(
     data,
     outcome,
-    y_label,
-    hiv_status = NULL,
-    knots = 4,
-    min_events = 5
+    y_label = "Complication",
+    knots = 4
 ) {
   
   df <- data %>%
-    select(all_of(c(outcome, "dif_day_tx_symp", "hiv_3"))) %>%
-    filter(
-      !is.na(.data[[outcome]]),
-      !is.na(dif_day_tx_symp)
-    )
+    dplyr::select(all_of(c(outcome, "dif_day_tx_symp"))) %>%
+    filter(!is.na(.data[[outcome]]),
+           !is.na(dif_day_tx_symp))
   
-  # Apply HIV filter
-  if (!is.null(hiv_status)) {
-    df <- df %>% filter(hiv_3 == hiv_status)
-  }
-  
-  # ---- SAFETY CHECKS ----
-  n_total  <- nrow(df)
-  n_events <- sum(df[[outcome]] == 1, na.rm = TRUE)
-  
-  if (n_total < 10 || n_events < min_events) {
-    message(
-      paste(
-        "Skipping:",
-        outcome,
-        ifelse(is.null(hiv_status), "(All)",
-               ifelse(hiv_status == 1, "(HIV+)", "(HIV−)")),
-        "- insufficient data (n =", n_total,
-        ", events =", n_events, ")"
-      )
-    )
-    return(NULL)
-  }
-  
-  # ---- rms workflow ----
   dd <- datadist(df)
   options(datadist = "dd")
   
   fit <- lrm(
     as.formula(
-      paste0(outcome, " ~ rcs(dif_day_tx_symp, ", knots, ")")
-    ),
+      paste0(outcome, " ~ rcs(dif_day_tx_symp, ", knots, ")")),
     data = df
   )
   
-  pred <- Predict(
-    fit,
-    dif_day_tx_symp,
-    fun = exp,
-    ref.zero = TRUE
+  
+
+  pred <- Predict( fit,dif_day_tx_symp,
+                   fun = plogis,
+                   ref.zero = TRUE
   )
   
   pred_df <- as.data.frame(pred)
-  
-  hiv_label <- if (is.null(hiv_status)) {
-    "All"
-  } else if (hiv_status == 1) {
-    "HIV+"
-  } else {
-    "HIV−"
-  }
   
   ggplot(pred_df, aes(dif_day_tx_symp, yhat)) +
     geom_line(linewidth = 1) +
     geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
     labs(
       x = "Delay to treatment initiation (days)",
-      y = "Odds Ratio",
-      title = paste(y_label, "-", hiv_label)
+      y = bquote(bolditalic("(P)") ~ bold("(" * .(y_label) * ")"))
     ) +
-    theme_bw()
+    theme_bw() +
+    theme(
+      axis.title = element_text(size = 12, color = "black", face = "bold"),
+      axis.text.x = element_text(size = 11, color = "black"),
+    ) +
+    scale_y_continuous(limits = c(0, 1))
 }
 
-## --------------------------------------------------
-## 3. Specification table: outcomes × HIV strata
-## --------------------------------------------------
-
-severity_specs <- crossing(
-  tibble::tribble(
-    ~outcome,           ~y_label,
-    "complication_2",   "Any complication",
-    "complication_3",   "All three complications",
-    "complication_4",   "Edema + hemorrhage"
-  ),
-  tibble::tribble(
-    ~hiv_status,
-    NA_integer_,   # All
-    0L,            # HIV−
-    1L             # HIV+
-  )
+symptoms_specs <- tibble::tribble(
+  ~outcome,               ~y_label,
+  "fever",                 "Fever",
+  "pallor",                "Pallor",
+  "weakness",              "Weakness",
+  "edema",                 "Oedema",
+  "weight_loss",           "Weight loss",
+  "cough_and_dyspnea",     "Cough and dyspnea",
+  "spleen_enlargement",    "Splenomegaly",
+  "increase_infection",    "Secondary infection",
+  "hemorrhagic_phenomena", "Hemorrhage", 
+  "liver_enlargement",     "Hepatomegaly",
+  "jaundice",              "Jaundice"
 )
 
-## --------------------------------------------------
-## 4. Run ALL models automatically
-## --------------------------------------------------
-
-severity_plots <- pmap(
-  severity_specs,
-  fit_severity_model,
-  data = data_complication
+symptoms_plots <- purrr::pmap(
+  symptoms_specs,
+  fit_symptoms_model,
+  data = data_symptoms %>% filter(hiv_2 == "No")
 )
 
-## Name plots for easy selection
-names(severity_plots) <- with(
-  severity_specs,
-  paste(y_label,
-        ifelse(is.na(hiv_status), "All",
-               ifelse(hiv_status == 1, "HIV+", "HIV−")),
-        sep = " – ")
+symptoms_plots[[1]]  # == severity_m1
+symptoms_plots[[2]]  # == severity_m2
+symptoms_plots[[3]]  # == severity_m3
+symptoms_plots[[4]]  # == severity_m1
+symptoms_plots[[5]]  # == severity_m2
+symptoms_plots[[6]]  # == severity_m3
+symptoms_plots[[7]]  # == severity_m1
+symptoms_plots[[8]]  # == severity_m2
+symptoms_plots[[9]]  # == severity_m3
+symptoms_plots[[10]]  # == severity_m1
+symptoms_plots[[11]]  # == severity_m2
+
+names(symptoms_plots) <- symptoms_specs$y_label
+
+final_severity <- ggpubr::ggarrange(
+  plotlist = symptoms_plots,
+  nrow = 4, ncol = 3,
+  common.legend = FALSE
 )
 
-## --------------------------------------------------
-## 5. Examples of arranging plots
-## --------------------------------------------------
+ggsave(final_severity, path = here("figures and tables"),
+       width = 10, height = 8, dpi = 300,
+       file = "distribution_symptoms_noHIV.png")
 
-## Example 1: One outcome, stratified by HIV
-plots_any_complication <- severity_plots[
-  grepl("^Any complication", names(severity_plots))
-]
+#### Symptoms model with HIV
 
-ggarrange(
-  plotlist = plots_any_complication,
-  nrow = 1
+symptoms_plots_2 <- purrr::pmap(
+  symptoms_specs,
+  fit_symptoms_model,
+  data = data_symptoms %>% filter(hiv_2 == "Yes")
 )
 
-## Example 2: HIV− only, all outcomes
-plots_hiv_neg <- severity_plots[grepl("HIV−$", names(severity_plots))]
+symptoms_plots_2[[1]]  # == severity_m1
+symptoms_plots_2[[2]]  # == severity_m2
+symptoms_plots_2[[3]]  # == severity_m3
+symptoms_plots_2[[4]]  # == severity_m1
+symptoms_plots_2[[5]]  # == severity_m2
+symptoms_plots_2[[6]]  # == severity_m3
+symptoms_plots_2[[7]]  # == severity_m1
+symptoms_plots_2[[8]]  # == severity_m2
+symptoms_plots_2[[9]]  # == severity_m3
+symptoms_plots_2[[10]]  # == severity_m1
+symptoms_plots_2[[11]]  # == severity_m2
 
-ggarrange(
-  plotlist = plots_hiv_neg,
-  nrow = 1
+names(symptoms_plots_2) <- symptoms_specs$y_label
+
+final_severity_2 <- ggpubr::ggarrange(
+  plotlist = symptoms_plots_2,
+  nrow = 4, ncol = 3,
+  common.legend = FALSE
 )
 
-## Example 3: Full grid (3 outcomes × 3 HIV strata)
-ggarrange(
-  plotlist = severity_plots,
-  nrow = 3,
-  ncol = 3
-)
-
-
-
-
-
-
-  
-fit_symptom_rms <- function(
-    data,
-    outcome,
-    outcome_label,
-    hiv_filter = NULL   # NULL = all, 0 = HIV-, 1 = HIV+
-) {
-  
-  df <- data_symp %>%
-    select(all_of(c(outcome, "dif_day_tx_symp", "hiv_3"))) %>%
-    filter(!is.na(.data[[outcome]]),
-           !is.na(dif_day_tx_symp))
-  
-  # Apply HIV filter if requested
-  if (!is.null(hiv_filter)) {
-    df <- df %>% filter(hiv_3 == hiv_filter)
-  }
-  
-  dd <- datadist(df)
-  options(datadist = "dd")
-  
-  fit <- lrm(
-    formula = as.formula(
-      paste0(outcome, " ~ rcs(dif_day_tx_symp, 4)")
-    ),
-    data = df
-  )
-  
-  pred <- Predict(
-    fit,
-    dif_day_tx_symp,
-    fun = exp,
-    ref.zero = TRUE
-  )
-  
-  as.data.frame(pred) %>%
-    mutate(
-      symptom = outcome_label,
-      hiv_group = case_when(
-        is.null(hiv_filter) ~ "All",
-        hiv_filter == 0     ~ "HIV−",
-        hiv_filter == 1     ~ "HIV+"
-      )
-    )
-}
-
-symptom_specs <- tibble::tribble(
-  ~outcome,      ~outcome_label,
-  "bleeding",    "Bleeding",
-  "jaundice_2",  "Jaundice",
-  "edema_3",     "Oedema"
-)
-
-pred_all <- purrr::pmap_dfr(
-  symptom_specs,
-  fit_symptom_rms,
-  data = data_symp,
-  hiv_filter = NULL
-)
-
-pred_hiv_neg <- purrr::pmap_dfr(
-  symptom_specs,
-  fit_symptom_rms,
-  data = data_symp,
-  hiv_filter = 0
-)
-
-pred_hiv_pos <- purrr::pmap_dfr(
-  symptom_specs,
-  fit_symptom_rms,
-  data = data_symp,
-  hiv_filter = 1
-)
-
-plot_all <- ggplot(
-  pred_all,
-  aes(dif_day_tx_symp, yhat, color = symptom, fill = symptom)
-) +
-  geom_line(linewidth = 1) +
-  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2, color = NA) +
-  geom_hline(yintercept = 1, linetype = "dashed") +
-  labs(
-    x = "Delay to treatment initiation (days)",
-    y = "Odds Ratio",
-    title = "All patients"
-  ) +
-  theme_bw() +
-  scale_color_manual(values = c(
-    "Bleeding" = "brown2",
-    "Jaundice" = "orange2",
-    "Oedema"   = "darkgreen"
-  )) +
-  scale_fill_manual(values = c(
-    "Bleeding" = "brown2",
-    "Jaundice" = "orange2",
-    "Oedema"   = "darkgreen"
-  ))
-
-plot_all
+ggsave(final_severity_2, path = here("figures and tables"),
+       width = 10, height = 8, dpi = 300,
+       file = "distribution_symptoms_HIV.png")
   
   
-  
-  
-  
-  
-  
-  
-  ######################################### GLM model ###################################################################
+################################################# GLM model ##################################################################################################
 
 var_order_2 <- c("age_group_2", "gender",  "region",
                  "education_level", "race_2", "hiv_2", "name_tx")
@@ -1432,7 +1329,7 @@ plot(newdat$dif_day_tx_symp, newdat$pred*100, type = "l", lwd = 2,
 plot(m1)
 
 summary(m1)
-############################################ GLM Adjusted #######################################################
+############################################ GLM Adjusted ###########################################################################################
 
 library(dplyr)
 library(rms)
@@ -1596,20 +1493,40 @@ for (v in var_order_2) {
 }
 
 
-############################################################# COX Model Adjusted ##############################################################
+############################################################# COX Model Adjusted ############################################################################
 
-## 1) Variables to adjust for in the model
-var_order_2 <- c("age_group_2", "gender", "region",
-                 "education_level", "race_2")
+#### COX model patients with HIV
 
-## 2) Desired level orders (reference = first level)
+# Prepare data
+# ----------------
+data_mort <- data_6 %>%
+  filter(!is.na(death_vl),
+         !is.na(dif_day_tx_symp)) %>% 
+  dplyr::select(
+    dif_day_tx_symp, death_vl, dif_treat_outcome,
+    age_group_2, gender, region,
+    education_level, race_2, hiv_2
+  ) %>% 
+  filter(hiv_2 == "Yes")
+
+# ----------------
+# Variable order
+# ----------------
+var_order_2 <- c(
+  "age_group_2", "gender", "region",
+  "education_level", "race_2"
+)
+
+# ----------------
+# Explicit factor level ordering (reference = first)
+# ----------------
 level_orders <- list(
-  age_group_2 = c("0-1", "1-5", "6-15", "16-50", ">50"),
+  age_group_2 = c("16-50", "0-1", "1-5", "6-15", ">50"),
   gender      = c("Female", "Male"),
-  region      = c("Center-West", "North", "Northeast", "Southeast", "South"),
+  region      = c("Northeast", "Center-West", "North", "Southeast", "South"),
   education_level = c(
-    "Incomplete elementary school",
     "Complete elementary and incomplete middle school",
+    "Incomplete elementary school",
     "Complete middle school and incomplete high school",
     "Complete high school",
     "Incomplete university",
@@ -1617,145 +1534,57 @@ level_orders <- list(
     "N/A"
   ),
   race_2 = c("Brown", "White", "Afro-descendants", "Yellow", "Indigenous", "Unknown")
-  )
+)
 
+for (v in names(level_orders)) {
+  data_mort[[v]] <- factor(data_mort[[v]], levels = level_orders[[v]])
+}
+
+# ----------------
+# datadist (required by rms)
+# ----------------
 dd <- datadist(data_mort)
 options(datadist = "dd")
 
-form_multi <- as.formula(
-  paste(
-    "Surv(dif_treat_outcome, death_vl) ~ rcs(dif_day_tx_symp, 4) +",
-    paste(var_order_2, collapse = " + ")
-  )
+# ----------------
+# Fit Cox model with restricted cubic spline
+# ----------------
+m1 <- cph(
+  Surv(dif_treat_outcome, death_vl) ~
+    rcs(dif_day_tx_symp, 4) +
+    age_group_2 + gender + region +
+    education_level + race_2,
+  data = data_mort,
+  x = TRUE,
+  y = TRUE
 )
 
-m1 <- coxph(form_multi, data = data_mort, x = TRUE)
-
-delay_seq <- seq(
-  quantile(data_mort$dif_day_tx_symp, 0.01, na.rm = TRUE),
-  quantile(data_mort$dif_day_tx_symp, 0.99, na.rm = TRUE),
-  length.out = 100
-)
-
-newdat <- data.frame(
-  dif_day_tx_symp = delay_seq,
-  age_group_2     = "0-1",
-  gender          = "Female",
-  region          = "Northeast",
-  education_level = "Incomplete elementary school",
-  race_2          = "Brown"
-)
-
-for (v in var_order_2) {
-  newdat[[v]] <- factor(newdat[[v]], levels = levels(data_mort[[v]]))
-}
-
-pred <- predict(m1, newdata = newdat, type = "lp", se.fit = TRUE)
-
+# ----------------
+# Predict adjusted hazard ratios
 # Reference = median delay
-ref_lp <- predict(
+# ----------------
+pred <- Predict(
   m1,
-  newdata = 
-    transform(newdat, dif_day_tx_symp = median(data_mort$dif_day_tx_symp)),
-  type = "lp"
+  dif_day_tx_symp,
+  fun = exp,        # HR
+  ref.zero = TRUE  # reference = median of dif_day_tx_symp
 )
 
-newdat <- newdat %>%
-  mutate(
-    hr    = exp(pred$fit - ref_lp),
-    lower = exp(pred$fit - ref_lp - 1.96 * pred$se.fit),
-    upper = exp(pred$fit - ref_lp + 1.96 * pred$se.fit)
-  )
+pred_df <- as.data.frame(pred)
 
-ggplot(newdat, aes(x = dif_day_tx_symp, y = hr)) +
+# ----------------
+# Plot adjusted HR curve
+# ----------------
+cox_hiv <- ggplot(pred_df, aes(x = dif_day_tx_symp, y = yhat)) +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
   geom_line(linewidth = 1) +
   geom_hline(yintercept = 1, linetype = "dashed") +
+  geom_vline(aes(xintercept = median(data_mort$dif_day_tx_symp, na.rm = T)), 
+             color = "red", linetype = "dashed") +
   labs(
     x = "Days between symptoms and treatment",
-    y = "Hazard ratio for death (median delay 29 days)",
-    #title = "Hazard of death by treatment delay",
-    #subtitle = "Adjusted for age, gender, region, education, race, HIV status, and treatment"
-  ) +
-  theme_bw() +
-  theme(
-    axis.title = element_text(size = 14, color = "black", face = "bold"),
-    axis.text.x = element_text(size = 12, color = "black")
-    ) +
-  scale_x_continuous(n.breaks = 10) +
-  scale_y_continuous(n.breaks = 12)
-  
-
-data_6 %>% 
-  summarise(media = median(age_years, na.rm = T), 
-            IQU = quantile(age_years, na.rm = T), 
-            IQL = quantile(age_years, na.rm = T), 
-            rangeU = max(age_years, na.rm = T), 
-            rangeL = min(age_years, na.rm = T))
-
-
-summary(data_6$age_years)
-
-
-
-
-dd <- datadist(data_mort)
-options(datadist = "dd")
-
-form_multi <- as.formula(
-  paste(
-    "Surv(dif_treat_outcome, death_vl) ~ rcs(dif_day_tx_symp, 4) +",
-    paste(var_order_2, collapse = " + ")
-  )
-)
-
-m1 <- coxph(form_multi, data = data_mort, x = TRUE)
-
-delay_seq <- seq(
-  quantile(data_mort$dif_day_tx_symp, 0.01, na.rm = TRUE),
-  quantile(data_mort$dif_day_tx_symp, 0.99, na.rm = TRUE),
-  length.out = 100
-)
-
-newdat <- data.frame(
-  dif_day_tx_symp = delay_seq,
-  age_group_2     = "0-1",
-  gender          = "Female",
-  region          = "Northeast",
-  education_level = "Incomplete elementary school",
-  race_2          = "Brown"
-)
-
-for (v in var_order_2) {
-  newdat[[v]] <- factor(newdat[[v]], levels = levels(data_mort[[v]]))
-}
-
-pred <- predict(m1, newdata = newdat, type = "lp", se.fit = TRUE)
-
-# Reference = median delay
-ref_lp <- predict(
-  m1,
-  newdata = 
-    transform(newdat, dif_day_tx_symp = median(data_mort$dif_day_tx_symp)),
-  type = "lp"
-)
-
-newdat <- newdat %>%
-  mutate(
-    hr    = exp(pred$fit - ref_lp),
-    lower = exp(pred$fit - ref_lp - 1.96 * pred$se.fit),
-    upper = exp(pred$fit - ref_lp + 1.96 * pred$se.fit)
-  )
-
-ggplot(newdat, aes(x = dif_day_tx_symp, y = hr)) +
-  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
-  geom_line(linewidth = 1) +
-  geom_hline(yintercept = 1, linetype = "dashed") +
-  labs(
-    x = "Days between symptoms and treatment",
-    y = "Hazard ratio for death (median delay 29 days)",
-    #title = "Hazard of death by treatment delay",
-    #subtitle = "Adjusted for age, gender, region, education, race, HIV status, and treatment"
+    y = paste0("Hazard ratio (reference = ", 
+               median(data_mort$dif_day_tx_symp[data_mort$hiv_2 == "Yes"], na.rm = T), " days",")")
   ) +
   theme_bw() +
   theme(
@@ -1763,4 +1592,120 @@ ggplot(newdat, aes(x = dif_day_tx_symp, y = hr)) +
     axis.text.x = element_text(size = 12, color = "black")
   ) +
   scale_x_continuous(n.breaks = 10) +
-  scale_y_continuous(n.breaks = 12)
+  scale_y_continuous(n.breaks = 12, limits = c(0.4,5))
+
+ggsave(cox_hiv, path = here("figures and tables"),
+       width = 10, height = 8, dpi = 300,
+       file = "cox_model_hiv.png")
+
+
+#### COX model patients without HIV
+# --------------
+# Prepare data
+# ----------------
+data_mort <- data_6 %>%
+  filter(!is.na(death_vl),
+         !is.na(dif_day_tx_symp)) %>% 
+  dplyr::select(
+    dif_day_tx_symp, death_vl, dif_treat_outcome,
+    age_group_2, gender, region,
+    education_level, race_2, hiv_2
+  ) %>% 
+  filter(hiv_2 == "No")
+
+# ----------------
+# Variable order
+# ----------------
+var_order_2 <- c(
+  "age_group_2", "gender", "region",
+  "education_level", "race_2"
+)
+
+# ----------------
+# Explicit factor level ordering (reference = first)
+# ----------------
+level_orders <- list(
+  age_group_2 = c("16-50", "0-1", "1-5", "6-15", ">50"),
+  gender      = c("Female", "Male"),
+  region      = c("Northeast", "Center-West", "North", "Southeast", "South"),
+  education_level = c(
+    "Complete elementary and incomplete middle school",
+    "Incomplete elementary school",
+    "Complete middle school and incomplete high school",
+    "Complete high school",
+    "Incomplete university",
+    "Complete university",
+    "N/A"
+  ),
+  race_2 = c("Brown", "White", "Afro-descendants", "Yellow", "Indigenous", "Unknown")
+)
+
+for (v in names(level_orders)) {
+  data_mort[[v]] <- factor(data_mort[[v]], levels = level_orders[[v]])
+}
+
+# ----------------
+# datadist
+# ----------------
+dd <- datadist(data_mort)
+options(datadist = "dd")
+
+# ----------------
+# Fit Cox model with restricted cubic spline
+# ----------------
+m1 <- cph(
+  Surv(dif_treat_outcome, death_vl) ~
+    rcs(dif_day_tx_symp, 4) +
+    age_group_2 + gender + region +
+    education_level + race_2,
+  data = data_mort,
+  x = TRUE,
+  y = TRUE
+)
+
+# ----------------
+# Predict adjusted hazard ratios
+# Reference = median delay
+# ----------------
+pred <- Predict(
+  m1,
+  dif_day_tx_symp,
+  fun = exp,        # HR
+  ref.zero = TRUE  # reference = median of dif_day_tx_symp
+)
+
+pred_df <- as.data.frame(pred)
+
+# ----------------
+# Plot adjusted HR curve
+# ----------------
+cox_nohiv <- ggplot(pred_df, aes(x = dif_day_tx_symp, y = yhat)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  geom_line(linewidth = 1) +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  geom_vline(aes(xintercept = median(data_mort$dif_day_tx_symp, na.rm = T)), 
+             color = "red", linetype = "dashed") +
+  labs(
+    x = "Days between symptoms and treatment",
+    y = paste0("Hazard ratio (reference = ", 
+               median(data_mort$dif_day_tx_symp[data_mort$hiv_2 == "No"], na.rm = T), " days",")")
+  ) +
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 14, color = "black", face = "bold"),
+    axis.text.x = element_text(size = 12, color = "black")
+  ) +
+  scale_x_continuous(n.breaks = 10) +
+  scale_y_continuous(n.breaks = 12, limits = c(0.4, 5))
+
+ggsave(cox_nohiv, path = here("figures and tables"),
+       width = 10, height = 8, dpi = 300,
+       file = "cox_model_nohiv.png")
+
+ggarrange(cox_nohiv, 
+          cox_hiv, labels = "AUTO") 
+ggsave(path = here("figures and tables"),
+       width = 10, height = 8, dpi = 300,
+       file = "cox_model.png")
+
+
