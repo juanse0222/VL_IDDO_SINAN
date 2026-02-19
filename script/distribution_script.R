@@ -23,6 +23,8 @@ summary(fit_lnorm)
 # 5. Comparative goodness-of-fit statistics
 ###
 
+media_d0 <- log10(median(data_6$dif_day_tx_symp, na.rm = T))
+
 d0 <- ggplot(
   data_6,
   aes(x = log10(dif_day_tx_symp))) +
@@ -48,6 +50,8 @@ d0 <- ggplot(
     aes(color = "log-normal"),
     linewidth = 1
   ) +
+  geom_vline(xintercept = media_d0, linetype = "dashed", 
+             linewidth = 1, color = "black") +
   labs(
     x = expression(bold(log[10]~"(Days since symptom onset)")),
     y = "Density",
@@ -98,6 +102,9 @@ summary(fit_cauchy_1)$aic
 
 summary(fit_lnorm)
 
+media_d1 <- log10(median(data_6$dif_day_tx_symp[data_6$region == "Center-West"], na.rm = T))
+10^(media_d1)
+
 d1 <- ggplot(
   data_6 %>% filter(region == "Center-West"),
   aes(x = log10(dif_day_tx_symp))) +
@@ -122,6 +129,8 @@ d1 <- ggplot(
     aes(color = "log-normal"),
     linewidth = 1
   ) +
+  geom_vline(xintercept = media_d1, linetype = "dashed", 
+             linewidth = 1, color = "black") +
   labs(
     x = expression(bold(log[10]~"(Days since symptom onset)")),
     y = "Density",
@@ -169,6 +178,8 @@ summary(fit_gamma)
 plot(fit_gamma)
 plot(fit_lnorm)
 
+media_d2 <- log10(median(data_6$dif_day_tx_symp[data_6$region == "Northeast"], na.rm = T))
+10^(media_d2)
 
 d2 <- ggplot(
   data_6 %>% filter(region == "Northeast"),
@@ -194,6 +205,8 @@ d2 <- ggplot(
     aes(color = "log-normal"),
     linewidth = 1
   ) +
+  geom_vline(xintercept = media_d2, linetype = "dashed", 
+             linewidth = 1, color = "black") +
   labs(
     x = expression(bold(log[10]~"(Days since symptom onset)")),
     y = "Density",
@@ -241,6 +254,8 @@ summary(fit_cauchy_3)$aic
 summary(fit_lnorm)
 
 # 5. Comparative goodness-of-fit statistics
+media_d3 <- log10(median(data_6$dif_day_tx_symp[data_6$region == "North"], na.rm = T))
+10^(media_d3)
 
 d3 <- ggplot(
   data_6 %>% filter(region == "North"),
@@ -268,6 +283,8 @@ d3 <- ggplot(
     aes(color = "log-normal"),
     linewidth = 1
   ) +
+  geom_vline(xintercept = media_d3, linetype = "dashed", 
+             linewidth = 1, color = "black") +
   labs(
     x = expression(bold(log[10]~"(Days since symptom onset)")),
     y = "Density",
@@ -315,6 +332,8 @@ summary(fit_lnorm)
 summary(fit_gamma)
 
 # 5. Comparative goodness-of-fit statistics
+media_d4 <- log10(median(data_6$dif_day_tx_symp[data_6$region == "Southeast"], na.rm = T))
+10^(media_d4)
 
 d4 <- ggplot(
   data_6 %>% filter(region == "Southeast"),
@@ -342,7 +361,8 @@ d4 <- ggplot(
     aes(color = "log-normal"),
     linewidth = 1
   ) +
-  
+  geom_vline(xintercept = media_d4, linetype = "dashed", 
+             linewidth = 1, color = "black") +
   labs(
     x = expression(bold(log[10]~"(Days since symptom onset)")),
     y = "Density",
@@ -391,6 +411,9 @@ summary(fit_lnorm)
 summary(fit_gamma)
 
 # 5. Comparative goodness-of-fit statistics
+media_d5 <- log10(median(data_6$dif_day_tx_symp[data_6$region == "South"], na.rm = T))
+10^(media_d5)
+
 
 d5 <- ggplot(
   data_6 %>% filter(region == "South"),
@@ -420,7 +443,8 @@ d5 <- ggplot(
     aes(color = "log-normal"),
     linewidth = 1
   ) +
-  
+  geom_vline(xintercept = media_d5, linetype = "dashed", 
+             linewidth = 1, color = "black") +
   labs(
     x = expression(bold(log[10]~"(Days since symptom onset)")),
     y = "Density",
@@ -433,6 +457,7 @@ d5 <- ggplot(
     labels = break_vals,
     limits = c(0, log10(500))   # keep or change as needed
   ) +
+  
   scale_y_continuous(limits = c(0, 1.5),
                      n.breaks = 7) +
   theme_bw() +
@@ -454,6 +479,9 @@ ggarrange(d0 + rremove("xlab"),
           d4 + rremove("ylab"), 
           common.legend = T, 
           legend = "bottom")
+ggsave(path = here("figures and tables"),
+       width = 12, height = 8, dpi = 300,
+       file = "regional_delay_distribution.png")
 
 Region <- c("Overall", "Center-West", "North", "Northeast", "Sout", "Southeast")
 Normal <- c(fit_norm$aic, fit_norm_1$aic, fit_norm_3$aic, fit_norm_2$aic, fit_norm_5$aic, fit_norm_4$aic)
@@ -537,3 +565,68 @@ ft <- autofit(ft)
 ft %>% 
   save_as_docx(path = here("figures and tables", "table_aic_distribution.docx"))
 #############################################################################################################################
+
+
+#This is to summarise the Area Under the Curve of the best fitting distribution: Log-Normal. 
+
+#-------------------------------------------------------------------------------------
+# Using the best fitting Log Normal to describe/summarise the delay characteristics
+#-------------------------------------------------------------------------------------
+
+# Parameters
+
+mu <- 3.270
+sigma <- 1.130
+
+# Time grid (days)
+
+t <- seq(0.01, 400, length.out = 1000)
+
+# Log-normal density
+
+dens <- dlnorm(t, meanlog = mu, sdlog = sigma)
+
+# Plot
+
+plot(
+  t, dens, type = "l", lwd = 2,
+  xlab = "Time (days)",
+  ylab = "Density",
+  main = "Log-normal Distribution (meanlog = 3.27, sdlog = 1.13)"
+)
+
+
+## These are P(T > x), i.e. the survival function:
+
+p_gt_30 <- 1 - plnorm(30, meanlog = mu, sdlog = sigma)
+p_gt_60 <- 1 - plnorm(60, meanlog = mu, sdlog = sigma)
+p_gt_90 <- 1 - plnorm(90, meanlog = mu, sdlog = sigma)
+p_gt_120 <- 1 - plnorm(120, meanlog = mu, sdlog = sigma)
+p_gt_150 <- 1 - plnorm(150, meanlog = mu, sdlog = sigma)
+p_gt_180 <- 1 - plnorm(180, meanlog = mu, sdlog = sigma)
+p_gt_30
+p_gt_60
+p_gt_90
+p_gt_120
+p_gt_150
+p_gt_180
+
+# Quantiles
+# Days corresponding to cumulative AUC levels
+# These are quantiles, i.e. values t such that
+# P(T ≤ t) = 0.80, 0.90, 0.95
+
+q_50 <- qlnorm(0.50, meanlog = mu, sdlog = sigma)
+q_75 <- qlnorm(0.75, meanlog = mu, sdlog = sigma)
+q_80 <- qlnorm(0.80, meanlog = mu, sdlog = sigma)
+q_90 <- qlnorm(0.90, meanlog = mu, sdlog = sigma)
+q_95 <- qlnorm(0.95, meanlog = mu, sdlog = sigma)
+q_50
+q_75
+q_80
+q_90
+q_95
+
+# END
+
+

@@ -931,8 +931,6 @@ plot(haz, xlab="Time since diagnosis (years)", type = "coxphHaz", col = 1:5)
 
 ```
 
-
-
 ```{r}
 data_9 <- data_8 %>% 
     mutate_at(vars("fever", "edema", "weight_loss",

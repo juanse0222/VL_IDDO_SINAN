@@ -528,4 +528,15 @@ result_table$CI_high_rel <- result_table$CI_high / ref_val
 result_table
 ###################################################################################################################################
 
-m1
+data_6 %>% 
+  filter(!is.na(name_tx)) %>%
+  filter(!is.na(evolution)) %>% 
+  filter(evolution %in% c("Cure", "Death for VL")) %>% 
+  mutate(time = if_else(dif_treat_outcome <= 7, "Yes", "No")) %>% 
+  tabyl(evolution, time) %>% 
+  adorn_totals("both") %>% 
+  adorn_percentages(denominator = "col") %>% 
+  adorn_pct_formatting() %>% 
+  adorn_ns(position = "front")
+
+summary(data_6$dif_day_tx_symp)
