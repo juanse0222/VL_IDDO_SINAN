@@ -1,5 +1,5 @@
 #Analysis model using delay category 
-install.packages(c("survival","rms","coxme","mice","Hmisc", "sjPlot", "splines"))
+install.packages(c("survival","rms","coxme","mice","Hmisc", "sjPlot", "splines", "broom"))
 library(survival)
 library(rms)    # for rcs / cph
 library(coxme)  # mixed effects cox
@@ -9,9 +9,14 @@ library(survminer)
 library(sjPlot)
 library(splines)
 
+pacman::p_load(broom)
+
 ######################################## Adjust variables and set up database ###################################################################
 ### Import work database final for running up the model
 data_6 <- import(here("data base and clean", "data_6.rds")) 
+
+data_6 <- data_6 %>%
+  dplyr::mutate(across(where(~ inherits(.x, "IDate")), as.Date))
 
 ### Adjusting variables 
 data_6 <- data_6 %>% 
@@ -146,18 +151,22 @@ data_8 <- data_7 %>%
 data_m1 <- data_8 %>% 
   filter(!is.na(death_vl)) %>% 
   #filter(!hiv_2 == "Yes") %>% 
-  select(dif_day_tx_symp, dif_treat_start_symp_cat_2, dif_treat_outcome, age_group_2,
+  dplyr::select(dif_day_tx_symp, dif_treat_start_symp_cat_2, dif_treat_outcome, age_group_2,
          age_years, gender_2, hiv_3, hiv_2, gender, death_vl, name_tx, severe_2, race_2,
-         federative_unit, education_level, region, race_2) 
+         federative_unit, education_level, , race_2) 
 #filter(!federative_unit == state_100)
 
 export(data_8, here("data base and clean", "data_8.rds")) ### Database to work with time between treatment initiation and death by VL
 
-######################################## Unadjust cox regression model by HIV status and Overall ###################################################################################################
+data_8 <- data_8 %>%
+  dplyr::mutate(across(where(~ inherits(.x, "IDate")), as.Date))
+
+######################################## Non-adjust cox regression model by HIV status and Overall ###################################################################################################
 
 ### Model overall - including HIV patients and unadjusted
 
 data_m1 <- data_8 %>% 
+  #filter(evolution %in% c("Cure", "Death for VL")) %>% 
   filter(!is.na(death_vl)) %>% 
   filter(!hiv_2 == "Yes") %>% 
   dplyr::select(dif_day_tx_symp, dif_treat_start_symp_cat_2, dif_treat_outcome, age_group_2,
@@ -207,8 +216,9 @@ m1
 
 data_m1 <- data_8 %>% 
   filter(!is.na(death_vl)) %>% 
+  #filter(evolution %in% c("Cure", "Death for VL")) %>% 
   #filter(!hiv_2 == "Yes") %>% 
-  select(dif_day_tx_symp, dif_treat_start_symp_cat_2, dif_treat_outcome, age_group_2,
+  dplyr::select(dif_day_tx_symp, dif_treat_start_symp_cat_2, dif_treat_outcome, age_group_2,
          age_years, gender_2, hiv_3, hiv_2, gender, death_vl, name_tx, severe_2, race_2,
          federative_unit, education_level, region, race_2) 
 
@@ -253,17 +263,23 @@ m1_whiv
 
 ###### Model with HIV and delay as a predictor. 
 
+data_8.2 <- data_8 %>% 
+  #filter(evolution %in% c("Cure", "Death for VL")) %>% 
+  filter(!is.na(death_vl)) %>% 
+  filter(!hiv_2 == "Yes") 
+  
+
 m1_hiv <- coxph(Surv(dif_treat_outcome, death_vl) ~ 
               rcs(dif_day_tx_symp, 4), 
-            data = data_8
+            data = data_8.2
 )
 
 summary(m1_hiv)
 
 newd_hiv <- data.frame(
   dif_day_tx_symp = seq(
-    min(data_8$dif_day_tx_symp, na.rm = TRUE),
-    max(data_8$dif_day_tx_symp, na.rm = TRUE),
+    min(data_8.2$dif_day_tx_symp, na.rm = TRUE),
+    max(data_8.2$dif_day_tx_symp, na.rm = TRUE),
     length.out = 200
   )
 )
@@ -1170,7 +1186,7 @@ panel_model_complications <- ggarrange(final_severity,
 
 panel_model_complications
 
-################################################# Model by symptoms and HV status #############################################################################
+######################################## Model by symptoms and HIV status #############################################################################
 
 data_symptoms <- data_8 %>% 
   dplyr::select(dif_day_tx_symp, fever, pallor, weakness, edema, weight_loss, cough_and_dyspnea,
@@ -1184,9 +1200,10 @@ fit_symptoms_model <- function(
 ) {
   
   df <- data %>%
-    dplyr::select(all_of(c(outcome, "dif_day_tx_symp"))) %>%
     filter(!is.na(.data[[outcome]]),
-           !is.na(dif_day_tx_symp))
+           !is.na(dif_day_tx_symp),
+           hiv_2 == "No") %>% 
+    dplyr::select(all_of(c(outcome, "dif_day_tx_symp"))) 
   
   dd <- datadist(df)
   options(datadist = "dd")
@@ -1194,31 +1211,67 @@ fit_symptoms_model <- function(
   fit <- lrm(
     as.formula(
       paste0(outcome, " ~ rcs(dif_day_tx_symp, ", knots, ")")),
-    data = df
+    data = df 
+  )
+
+  df_2 <- data %>%
+    filter(!is.na(.data[[outcome]]),
+           !is.na(dif_day_tx_symp),
+           hiv_2 == "Yes") %>% 
+    dplyr::select(all_of(c(outcome, "dif_day_tx_symp")))
+  
+  dd <- datadist(df_2)
+  options(datadist = "dd")
+  
+  fit_2 <- lrm(
+    as.formula(
+      paste0(outcome, " ~ rcs(dif_day_tx_symp, ", knots, ")")),
+    data = df_2 
   )
   
-  
-
-  pred <- Predict( fit,dif_day_tx_symp,
+  pred <- Predict( fit, dif_day_tx_symp,
                    fun = plogis,
                    ref.zero = TRUE
   )
   
-  pred_df <- as.data.frame(pred)
+  pred_2 <- Predict( fit_2, dif_day_tx_symp,
+                   fun = plogis,
+                   ref.zero = TRUE
   
-  ggplot(pred_df, aes(dif_day_tx_symp, yhat)) +
+  )                 
+                   
+  pred_df <- as.data.frame(pred)
+  pred_df_2 <- as.data.frame(pred_2)
+  
+  
+  ggplot(pred_df, aes(dif_day_tx_symp, yhat, color = "HIV(-)")) +
     geom_line(linewidth = 1) +
-    geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+    geom_ribbon(aes(ymin = lower, ymax = upper, fill = "CI"), alpha = 0.2, color = NA) +
+    geom_line(
+      data = pred_df_2,
+      aes(dif_day_tx_symp, yhat, color = "HIV(+)"),
+      linewidth = 1
+    ) +
+    geom_ribbon(
+      data = pred_df_2,
+      aes(ymin = lower, ymax = upper, fill = "CI"),
+      alpha = 0.2,
+      color = NA
+    ) +
     labs(
       x = "Delay to treatment initiation (days)",
-      y = bquote(bolditalic("(P)") ~ bold("(" * .(y_label) * ")"))
+      y = bquote(bolditalic("P(x)") ~ bold("(" * .(y_label) * ")")),
+      color = "Group",
+      fill = NULL
     ) +
     theme_bw() +
     theme(
       axis.title = element_text(size = 12, color = "black", face = "bold"),
-      axis.text.x = element_text(size = 11, color = "black"),
+      axis.text.x = element_text(size = 11, color = "black")
     ) +
-    scale_y_continuous(limits = c(0, 1))
+    scale_y_continuous(limits = c(0, 1)) +
+    scale_color_manual(values = c("HIV(-)" = "darkgreen", "HIV(+)" = "brown2")) +
+    scale_fill_manual(values = c("CI" = "grey80"))
 }
 
 symptoms_specs <- tibble::tribble(
@@ -1239,7 +1292,8 @@ symptoms_specs <- tibble::tribble(
 symptoms_plots <- purrr::pmap(
   symptoms_specs,
   fit_symptoms_model,
-  data = data_symptoms %>% filter(hiv_2 == "No")
+  data = data_symptoms 
+    #filter(hiv_2 == "No")
 )
 
 symptoms_plots[[1]]  # == severity_m1
@@ -1256,15 +1310,47 @@ symptoms_plots[[11]]  # == severity_m2
 
 names(symptoms_plots) <- symptoms_specs$y_label
 
-final_severity <- ggpubr::ggarrange(
-  plotlist = symptoms_plots,
-  nrow = 4, ncol = 3,
-  common.legend = FALSE
+bottom_idx <- 9:11
+
+symptoms_plots2 <- purrr::map2(
+  symptoms_plots,
+  seq_along(symptoms_plots),
+  ~ if (.y %in% bottom_idx) .x else .x +
+    theme(
+      axis.title.x = element_blank(),
+      axis.text.x  = element_blank(),
+      axis.ticks.x = element_blank()
+    )
 )
 
-ggsave(final_severity, path = here("figures and tables"),
-       width = 10, height = 8, dpi = 300,
-       file = "distribution_symptoms_noHIV.png")
+library(cowplot)
+
+# 1) Extract legend from one plot
+legend <- cowplot::get_legend(
+  symptoms_plots2[[1]] +
+    theme(legend.position = "right",
+          legend.text = element_text(size = 12, color = "black"),
+          legend.title = element_text(size = 16, color = "black", face = "bold"))
+)
+
+# 3) Arrange plots
+main_panel <- ggpubr::ggarrange(
+  plotlist = plots_no_legend,
+  nrow = 4,
+  ncol = 3
+)
+
+# 4) Put legend inside the figure at exact position
+final_severity <- ggdraw(main_panel) +
+  draw_grob(legend, x = 0.78, y = 0.02, width = 0.20, height = 0.20)
+
+
+ggsave(
+  filename = "distribution_symptoms_final.png",
+  plot = final_severity,
+  path = here("figures and tables"),
+  width = 10, height = 8, dpi = 300
+)
 
 #### Symptoms model with HIV
 
@@ -1288,16 +1374,33 @@ symptoms_plots_2[[11]]  # == severity_m2
 
 names(symptoms_plots_2) <- symptoms_specs$y_label
 
+bottom_idx <- 9:11
+
+symptoms_plots3 <- purrr::map2(
+  symptoms_plots_2,
+  seq_along(symptoms_plots_2),
+  ~ if (.y %in% bottom_idx) .x else .x +
+    theme(
+      axis.title.x = element_blank(),
+      axis.text.x  = element_blank(),
+      axis.ticks.x = element_blank()
+    )
+)
+
 final_severity_2 <- ggpubr::ggarrange(
-  plotlist = symptoms_plots_2,
+  plotlist = symptoms_plots3,
   nrow = 4, ncol = 3,
   common.legend = FALSE
 )
 
-ggsave(final_severity_2, path = here("figures and tables"),
-       width = 10, height = 8, dpi = 300,
-       file = "distribution_symptoms_HIV.png")
+ggsave(
+  filename = "distribution_symptoms_HIV.png",
+  plot = final_severity_2,
+  path = here("figures and tables"),
+  width = 10, height = 8, dpi = 300
+)
   
+ggarrange(final_severity, final_severity_2, nrow = 2)
   
 ################################################# GLM model ##################################################################################################
 
@@ -1559,6 +1662,8 @@ m1 <- cph(
   y = TRUE
 )
 
+summary(m1)
+
 # ----------------
 # Predict adjusted hazard ratios
 # Reference = median delay
@@ -1703,9 +1808,11 @@ ggsave(cox_nohiv, path = here("figures and tables"),
        file = "cox_model_nohiv.png")
 
 ggarrange(cox_nohiv, 
-          cox_hiv, labels = "AUTO") 
+          cox_hiv, labels = c("A. No HIV", "B. HIV"), 
+          label.x = (0.2), label.y = (0.99)) 
 ggsave(path = here("figures and tables"),
        width = 10, height = 8, dpi = 300,
        file = "cox_model.png")
 
 
+summary(m1)
