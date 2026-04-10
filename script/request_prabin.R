@@ -560,7 +560,7 @@ ggsave(
 
 ggarrange(final_severity, final_severity_2, nrow = 2)
 
-############################################################# COX Model Adjusted ############################################################################
+############################################################# COX Model Adjusted - Figure 5 ############################################################################
 
 #### COX model patients with HIV
 
@@ -780,5 +780,179 @@ ggsave(path = here("figures and tables"),
 
 
 summary(m1)
+
+
+############################# Baseline characteristics by delay between symptoms onset and treatment initiation ########################################################
+
+### Distribution and direction time between recurrences by characteristics and variables selected 
+### variables in the table
+var_order <- c("age_group_2", "gender", "year_period", "region",
+               "education_level", "race_2", "hiv_2", "evolution")
+
+### desired level orders WITH the reference (or desired) first
+level_orders <- list(
+  age_group_2 = c("0-1", "1-5", "6-15", "16-50", ">50"),
+  gender      = c("Female", "Male"),
+  year_period = c("2007-2009", "2010-2014", "2015-2018", "2019-2023"),
+  region      = c("Center-West", "North", "Northeast", "Southeast", "South"),
+  education_level = c(
+    "Incomplete elementary school",
+    "Complete elementary and incomplete middle school",
+    "Complete middle school and incomplete high school",
+    "Complete high school",
+    "Incomplete university",
+    "Complete university",
+    "N/A"
+  ),
+  race_2 = c("Brown", "White", "Afro-descendants", "Yellow", "Indigenous", "Unknown"),
+  hiv_2  = c("No", "Yes", "Unknown"),
+  evolution = c("Cure", "Death for VL", "Death for any-cause", "Neglect", "Transferred", NA)
+)
+
+### Function to make baseline table by delay variables
+median_time_order <- function(vars, level_orders = list(), data = data_6) {
+  map_dfr(vars, function(v) {
+    
+    # subset: valid characteristic and non-missing ts-tt delay > 0
+    d_sub <- data %>%
+      filter(!is.na(.data[[v]]),
+             !is.na(dif_day_tx_symp),
+             dif_day_tx_symp > 0)
+    
+    if (nrow(d_sub) == 0) return(NULL)
+    
+    # enforce factor levels according to level_orders (this sets display/reference)
+    if (!is.null(level_orders[[v]])) {
+      d_sub[[v]] <- factor(d_sub[[v]], levels = level_orders[[v]])
+    } else {
+      d_sub[[v]] <- factor(d_sub[[v]])
+    }
+    
+    # denominator for n/N (here: all rows in data_6, as you had it)
+    denom <- nrow(d_sub)
+    
+    # summary: n/N, medians [IQR] and ranges for 3 time intervals
+    df_sum <- d_sub %>%
+      group_by(.data[[v]]) %>%
+      summarise(
+        n = n(),
+        
+        median_1 = paste0(
+          round(median(dif_day_dx_symp, na.rm = TRUE), 0), " [",
+          round(quantile(dif_day_dx_symp, 0.25, na.rm = TRUE), 0), "-",
+          round(quantile(dif_day_dx_symp, 0.75, na.rm = TRUE), 0), "]"
+        ),
+        range_1 = paste0(
+          min(dif_day_dx_symp, na.rm = TRUE), "-",
+          max(dif_day_dx_symp, na.rm = TRUE)
+        ),
+        
+        median_2 = paste0(
+          round(median(dif_day_tx_dx, na.rm = TRUE), 0), " [",
+          round(quantile(dif_day_tx_dx, 0.25, na.rm = TRUE), 0), "-",
+          round(quantile(dif_day_tx_dx, 0.75, na.rm = TRUE), 0), "]"
+        ),
+        range_2 = paste0(
+          min(dif_day_tx_dx, na.rm = TRUE), "-",
+          max(dif_day_tx_dx, na.rm = TRUE)
+        ),
+        
+        median_3 = paste0(
+          round(median(dif_day_tx_symp, na.rm = TRUE), 0), " [",
+          round(quantile(dif_day_tx_symp, 0.25, na.rm = TRUE), 0), "-",
+          round(quantile(dif_day_tx_symp, 0.75, na.rm = TRUE), 0), "]"
+        ),
+        range_3 = paste0(
+          min(dif_day_tx_symp, na.rm = TRUE), "-",
+          max(dif_day_tx_symp, na.rm = TRUE)
+        ),
+        
+        .groups = "drop"
+      ) %>%
+      mutate(
+        variable = v,
+        level    = as.character(.data[[v]]),
+        p = paste0(scales::percent(n/denom, accuracy = 0.01, suffix = "%"), 
+                   "(", 
+                   scales::comma(n,    big.mark = ","), "/", 
+                   scales::comma(denom, big.mark = ","),
+                   ")"
+        )
+      ) %>%
+      dplyr::select(variable, level, p,
+             median_1, range_1,
+             median_2, range_2,
+             median_3, range_3)
+    
+    # apply desired level order to the summarised table
+    if (!is.null(level_orders[[v]])) {
+      df_sum <- df_sum %>% mutate(level = factor(level, levels = level_orders[[v]]))
+    } else {
+      df_sum <- df_sum %>% mutate(level = factor(level))
+    }
+    
+    df_sum
+  }) %>%
+    mutate(variable = factor(variable, levels = var_order)) %>%
+    arrange(variable, level)
+}
+
+# run
+vars <- var_order
+dif_table <- median_time_order(vars, level_orders, data = data_6)
+
+border_line <- officer::fp_border(color = "black", width = 1.38) 
+
+tab_1 <- dif_table %>% 
+  mutate(
+    variable = recode(
+      variable,
+      age_group_2     = "Age group",
+      gender          = "Gender",
+      year_period     = "Period (year)",
+      region          = "Region",
+      education_level = "Education level",
+      race_2          = "Race/colour",
+      hiv_2           = "HIV status",
+      evolution       = "Evolution"
+    )
+  ) %>% 
+  rename(
+    "Characteristic"              = variable,
+    "Level"                       = level,
+    "% (n/N)"              = p,
+    "Median time ts-td (days)"    = median_1,
+    "Range ts-td (days)"          = range_1,
+    "Median time td-tt (days)"    = median_2,
+    "Range td-tt (days)"          = range_2,
+    "Median time ts-tt (days)"    = median_3,
+    "Range ts-tt (days)"          = range_3
+  ) %>% 
+  flextable() %>% 
+  # group rows (you may need to adjust indices if your data changes)
+  merge_at(j = 1, i = 1:5,  part = "body") %>%  
+  merge_at(j = 1, i = 6:7,  part = "body") %>% 
+  merge_at(j = 1, i = 8:11, part = "body") %>% 
+  merge_at(j = 1, i = 12:16,part = "body") %>% 
+  merge_at(j = 1, i = 17:23,part = "body") %>% 
+  merge_at(j = 1, i = 24:29,part = "body") %>% 
+  merge_at(j = 1, i = 30:32,part = "body") %>% 
+  merge_at(j = 1, i = 33:37,part = "body") %>% 
+  # merge_at(j = 1, i = 38:42,part = "body") %>% 
+  hline(i = c(5, 7, 11, 16, 23, 29, 32), part = "body", border = border_line) %>% 
+  # center numeric / formatted columns
+  align(j = 3:9, part = "body",   align = "center") %>% 
+  align(j = 3:9, part = "header", align = "center") %>% 
+  # bold characteristic column & header
+  bold(j = 1, part = "all") %>% 
+  bold(i = 1, part = "header") %>% 
+  autofit() 
+
+tab_1
+
+# save
+tab_1 %>% 
+  save_as_docx(path = here("figures and tables", "table_1.docx"))
+
 
 
