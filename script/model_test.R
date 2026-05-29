@@ -1042,7 +1042,7 @@ fit_severity_model <- function(
     geom_line(linewidth = 1) +
     geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
     labs(
-      x = "Delay to treatment initiation (days)",
+      x = "Time to treatment initiation (days)",
       y = y_label
     ) +
     theme_bw() +
@@ -1056,7 +1056,7 @@ severity_specs <- tibble::tribble(
   ~outcome,           ~y_label,
   "complication_2",   "Any complication",
   "complication_3",   "All three complications",
-  "complication_4",   "Edema + hemorrhage"
+  "complication_4",   "Oedema + hemorrhage"
 )
 
 severity_plots <- purrr::pmap(

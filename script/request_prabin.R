@@ -47,9 +47,13 @@ data_prabin_2 <- data_prabin %>%
 
 data_prabin_2 <- data_prabin_2 %>%
   dplyr::mutate(across(where(~ inherits(.x, "IDate")), as.Date))
+
 ################ Median and descriptive values by region ##################################################################
 data_6 <- import(here("data base and clean", "data_6.rds"))  ### Clean database
 data_6 <- data_6 %>%
+  dplyr::mutate(across(where(~ inherits(.x, "IDate")), as.Date))
+
+data_8 <- data_8 %>%
   dplyr::mutate(across(where(~ inherits(.x, "IDate")), as.Date))
 
 
@@ -560,6 +564,267 @@ ggsave(
 
 ggarrange(final_severity, final_severity_2, nrow = 2)
 
+################################### Model un-adjusted by symptoms - Figure 2 and 3 ##########################################################################
+
+data_7 <- data_6 %>% 
+  mutate(edema_2 = if_else(edema == 1, "Yes oedema", "No oedema"),
+         edema_2 = factor(edema_2, levels = c("Yes oedema", "No oedema")), 
+         severe = if_else(edema == 1 | hemorrhagic_phenomena == 1, "Severe", "No severe"),
+         severe = factor(severe, levels = c("Severe", "No severe")),
+         hiv_3 = replace_na(hiv_2 == "Unknown"),
+         hiv_2 = factor(hiv_2, levels = c("Yes", "No")))
+
+data_8 <- data_7 %>% 
+  mutate(hiv_2 = if_else(hiv_2 == "Unknown", NA, hiv_2)) %>% 
+  mutate(gender_2 = if_else(gender == "Male", 1, 0),
+         hiv_3 = case_when(hiv_2 == "Yes" ~ 1, 
+                           hiv_2 == "No" ~ 0,
+                           hiv_2 == "Unknown" ~ 2,
+                           TRUE ~ NA),
+         severe_2 = if_else(edema == 1, 1, 0),
+         federative_unit = factor(federative_unit),
+         gender_2 = factor(gender_2),
+         hiv_3 = factor(hiv_3),
+         federative_unit = as.factor(federative_unit)) %>% 
+  mutate(dif_treat_start_symp_cat_2 = case_when(dif_treat_start_symp_cat == "< 30 days" ~ 1,
+                                                dif_treat_start_symp_cat == "30-89 days" ~ 2,
+                                                dif_treat_start_symp_cat == "90-119 days" ~ 3,
+                                                dif_treat_start_symp_cat == "≥120 days" ~ 4,
+                                                TRUE ~ NA))
+
+data_symptoms <- data_8 %>% 
+  dplyr::select(dif_day_tx_symp, fever, pallor, weakness, edema, weight_loss, cough_and_dyspnea,
+                increase_infection, spleen_enlargement, hemorrhagic_phenomena, liver_enlargement,
+                jaundice, hiv_2, age_years, gender)
+
+# ── Model function ─────────────────────────────────────────────────────────────
+fit_symptoms_model <- function(data, outcome, y_label = "Complication", knots = 4) {
+  
+  # HIV(-) group
+  df <- data %>%
+    filter(!is.na(.data[[outcome]]),
+           !is.na(dif_day_tx_symp),
+           hiv_2 == "No") %>%
+    dplyr::select(all_of(c(outcome, "dif_day_tx_symp", "age_years", "gender")))
+  
+  # ✅ Fixed — pass the object directly, no environment lookup needed
+  dd <- datadist(df)
+  options(datadist = dd)
+  
+  # FIX 1: corrected paste0 — proper string concatenation, comma inside rcs()
+  fit <- lrm(
+    as.formula(
+      paste0(outcome, " ~ rcs(dif_day_tx_symp, ", knots, ") + rcs(age_years, ", knots, ") + gender")
+    ),
+    data = df
+  )
+  
+  # HIV(+) group
+  df_2 <- data %>%
+    filter(!is.na(.data[[outcome]]),
+           !is.na(dif_day_tx_symp),
+           hiv_2 == "Yes") %>%
+    dplyr::select(all_of(c(outcome, "dif_day_tx_symp", "age_years", "gender")))
+  
+  dd <<- datadist(df_2)        # ← same here
+  options(datadist = "dd")
+  
+  # FIX 1 (repeated): same formula fix for fit_2
+  fit_2 <- lrm(
+    as.formula(
+      paste0(outcome, " ~ rcs(dif_day_tx_symp, ", knots, ") + rcs(age_years, ", knots, ") + gender")
+    ),
+    data = df_2
+  )
+  
+  pred <- Predict(fit, dif_day_tx_symp, fun = plogis, ref.zero = TRUE)
+  pred_2 <- Predict(fit_2, dif_day_tx_symp, fun = plogis, ref.zero = TRUE)
+  
+  pred_df   <- as.data.frame(pred)
+  pred_df_2 <- as.data.frame(pred_2)
+  
+  ggplot(pred_df, aes(dif_day_tx_symp, yhat, color = "HIV(-)")) +
+    geom_line(linewidth = 1) +
+    geom_ribbon(aes(ymin = lower, ymax = upper, fill = "CI"), alpha = 0.2, color = NA) +
+    geom_line(
+      data = pred_df_2,
+      aes(dif_day_tx_symp, yhat, color = "HIV(+)"),
+      linewidth = 1
+    ) +
+    geom_ribbon(
+      data = pred_df_2,
+      aes(ymin = lower, ymax = upper, fill = "CI"),
+      alpha = 0.2, color = NA
+    ) +
+    labs(
+      x = "Delay to treatment initiation (days)",
+      y = bquote(bolditalic("P") ~ bold("(" * .(y_label) * ")")),
+      color = "Group",
+      fill = NULL
+    ) +
+    theme_bw() +
+    theme(
+      axis.title = element_text(size = 12, color = "black", face = "bold"),
+      axis.text.x = element_text(size = 11, color = "black")
+    ) +
+    scale_y_continuous(limits = c(0, 1)) +
+    scale_color_manual(values = c("HIV(-)" = "darkgreen", "HIV(+)" = "brown2")) +
+    scale_fill_manual(values = c("CI" = "grey80"))
+}
+
+# ── Outcome specs ──────────────────────────────────────────────────────────────
+symptoms_specs <- tibble::tribble(
+  ~outcome,                ~y_label,
+  "fever",                 "Fever",
+  "pallor",                "Pallor",
+  "weakness",              "Weakness",
+  "edema",                 "Oedema",
+  "weight_loss",           "Weight loss",
+  "cough_and_dyspnea",     "Cough and dyspnea",
+  "spleen_enlargement",    "Splenomegaly",
+  "increase_infection",    "Secondary infection",
+  "hemorrhagic_phenomena", "Hemorrhage",
+  "liver_enlargement",     "Hepatomegaly",
+  "jaundice",              "Jaundice"
+)
+
+# ── Run models ─────────────────────────────────────────────────────────────────
+symptoms_plots <- purrr::pmap(
+  symptoms_specs,
+  fit_symptoms_model,
+  data = data_symptoms
+)
+
+names(symptoms_plots) <- symptoms_specs$y_label
+
+# ── Strip x-axis from all plots except the bottom row ─────────────────────────
+bottom_idx <- 9:11
+
+symptoms_plots2 <- purrr::map2(
+  symptoms_plots,
+  seq_along(symptoms_plots),
+  ~ if (.y %in% bottom_idx) .x else .x +
+    theme(
+      axis.title.x = element_blank(),
+      axis.text.x  = element_blank(),
+      axis.ticks.x = element_blank()
+    )
+)
+
+library(cowplot)
+
+# ── Extract shared legend ──────────────────────────────────────────────────────
+legend <- cowplot::get_legend(
+  symptoms_plots2[[1]] +
+    theme(legend.position = "right",
+          legend.text  = element_text(size = 12, color = "black"),
+          legend.title = element_text(size = 16, color = "black", face = "bold"))
+)
+
+# FIX 2: define plots_no_legend before passing to ggarrange
+plots_no_legend <- purrr::map(symptoms_plots2, ~ .x + theme(legend.position = "none"))
+
+# ── Arrange panels ─────────────────────────────────────────────────────────────
+main_panel <- ggpubr::ggarrange(
+  plotlist = plots_no_legend,
+  nrow = 4,
+  ncol = 3
+)
+
+final_severity <- ggdraw(main_panel) +
+  draw_grob(legend, x = 0.78, y = 0.02, width = 0.20, height = 0.20)
+
+ggsave(
+  filename = "distribution_symptoms_final.png",
+  plot     = final_severity,
+  path     = here("figures and tables"),
+  width = 10, height = 8, dpi = 300
+)
+
+# ── FIX 3: second pmap uses full data (no pre-filter); function handles the
+#    HIV split internally — pre-filtering to "Yes" would empty the HIV(-) branch
+symptoms_plots_2 <- purrr::pmap(
+  symptoms_specs,
+  fit_symptoms_model,
+  data = data_symptoms        # ← removed the erroneous filter(hiv_2 == "Yes")
+)
+
+names(symptoms_plots_2) <- symptoms_specs$y_label
+
+symptoms_plots3 <- purrr::map2(
+  symptoms_plots_2,
+  seq_along(symptoms_plots_2),
+  ~ if (.y %in% bottom_idx) .x else .x +
+    theme(
+      axis.title.x = element_blank(),
+      axis.text.x  = element_blank(),
+      axis.ticks.x = element_blank()
+    )
+)
+
+# ── Extract shared legend ──────────────────────────────────────────────────────
+legend_2 <- cowplot::get_legend(
+  symptoms_plots3[[1]] +
+    theme(legend.position = "right",
+          legend.text  = element_text(size = 12, color = "black"),
+          legend.title = element_text(size = 16, color = "black", face = "bold"))
+)
+
+# FIX 2: define plots_no_legend before passing to ggarrange
+plots_no_legend_2 <- purrr::map(symptoms_plots3, ~ .x + theme(legend.position = "none"))
+
+# ── Arrange panels ─────────────────────────────────────────────────────────────
+main_panel <- ggpubr::ggarrange(
+  plotlist = plots_no_legend_2,
+  nrow = 4,
+  ncol = 3
+)
+
+
+final_severity_2 <- ggpubr::ggarrange(
+  plotlist = symptoms_plots3,
+  nrow = 4, ncol = 3,
+  common.legend = FALSE
+)
+
+ggsave(
+  filename = "distribution_symptoms_HIV.png",
+  plot     = final_severity_2,
+  path     = here("figures and tables"),
+  width = 10, height = 8, dpi = 300
+)
+
+ggarrange(final_severity, final_severity_2, nrow = 2)
+
+
+symptoms_plots3 <- purrr::map2(
+  symptoms_plots_2,
+  seq_along(symptoms_plots_2),
+  ~ if (.y %in% bottom_idx) .x else .x +
+    theme(
+      axis.title.x = element_blank(),
+      axis.text.x  = element_blank(),
+      axis.ticks.x = element_blank()
+    )
+)
+
+final_severity_2 <- ggpubr::ggarrange(
+  plotlist = symptoms_plots3,
+  nrow = 4, ncol = 3,
+  common.legend = FALSE
+)
+
+ggsave(
+  filename = "distribution_symptoms_HIV.png",
+  plot = final_severity_2,
+  path = here("figures and tables"),
+  width = 10, height = 8, dpi = 300
+)
+
+ggarrange(final_severity, final_severity_2, nrow = 2)
+
+
+
 ############################################################# COX Model Adjusted - Figure 5 ############################################################################
 
 #### COX model patients with HIV
@@ -953,6 +1218,9 @@ tab_1
 # save
 tab_1 %>% 
   save_as_docx(path = here("figures and tables", "table_1.docx"))
+
+#################################### Severity adjusted model #######################################################
+
 
 
 

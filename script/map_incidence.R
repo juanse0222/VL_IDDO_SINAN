@@ -20,11 +20,16 @@ data_pop_2 <- data_pop %>%
 
 ### 2. Clean and curated dataset and set new features (variables) - case of VL (SINAN dataset)
 data_cases <- data_6 %>% 
-  mutate(year_3 = case_when(year >= 2007 & year <= 2009 ~ "2007 - 2009",
-                            year >= 2010 & year <= 2014 ~ "2010 - 2014",
-                            year >= 2015 & year <= 2018 ~ "2015 - 2018",
-                            year >= 2019 & year <= 2023 ~ "2019 - 2023",
-                            TRUE ~ NA)) %>% 
+  mutate(
+    year    = lubridate::year(as.Date(date_of_notification)),  # ← as.Date() repairs the IDate corruption
+    year_3  = case_when(
+      year >= 2007 & year <= 2009 ~ "2007 - 2009",
+      year >= 2010 & year <= 2014 ~ "2010 - 2014",
+      year >= 2015 & year <= 2018 ~ "2015 - 2018",
+      year >= 2019 & year <= 2023 ~ "2019 - 2023",
+      TRUE ~ NA_character_                                     # ← keep NA_character_ to match string type
+    )
+  ) %>% 
   group_by(federative_unit, year_3) %>% 
   summarise(cases = n(), .groups = "drop")
 
@@ -32,10 +37,10 @@ data_cases <- data_6 %>%
 
 map <- as.data.frame(map_uf_shp_3)
 
-map_2 <- left_join(map, select(data_pop_2, cod_uf, year_3, pop),
+map_2 <- left_join(map, dplyr::select(data_pop_2, cod_uf, year_3, pop),
                    by = c("year_3", "federative_unit" = "cod_uf"))
 
-map_3 <- left_join(map_2, select(data_cases, federative_unit, year_3, cases),
+map_3 <- left_join(map_2, dplyr::select(data_cases, federative_unit, year_3, cases),
                    by = c("year_3", "federative_unit"))
 
 export(map_3, here("data base and clean", "map_3.rds")) ### export incidence map format rds

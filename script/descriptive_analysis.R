@@ -117,7 +117,7 @@ data_6 <- data_6 %>%
 
 ############################# Baseline characteristics by delay between symptoms onset and treatment initiation ########################################################
 
-### Distribution and direction time between recurrences by characteristics and some variables chosen 
+### Distribution and direction time between recurrences by characteristics and variables selected 
 ### variables in the table
 var_order <- c("age_group_2", "gender", "year_period", "region",
                "education_level", "race_2", "hiv_2", "evolution")
@@ -1164,11 +1164,16 @@ map_uf_shp <- read_sf(here("map_risk_vl_brazil", "BR_UF_2023", "BR_UF_2023.shp")
 map_uf <- as.data.frame(read_state(year = 2020))
 
 data_ost <- data_6 %>% 
-  mutate(year_3 = case_when(year >= 2007 & year <= 2009 ~ "2007 - 2009",
-                            year >= 2010 & year <= 2014 ~ "2010 - 2014",
-                            year >= 2015 & year <= 2018 ~ "2015 - 2018",
-                            year >= 2019 & year <= 2023 ~ "2019 - 2023",
-                            TRUE ~ NA)) %>% 
+  mutate(
+    year    = lubridate::year(as.Date(date_of_notification)),  # ← as.Date() repairs the IDate corruption
+    year_3  = case_when(
+      year >= 2007 & year <= 2009 ~ "2007 - 2009",
+      year >= 2010 & year <= 2014 ~ "2010 - 2014",
+      year >= 2015 & year <= 2018 ~ "2015 - 2018",
+      year >= 2019 & year <= 2023 ~ "2019 - 2023",
+      TRUE ~ NA_character_                                     # ← keep NA_character_ to match string type
+    )
+  ) %>% 
   group_by(federative_unit, year_3) %>% 
   summarise(median = median(dif_day_tx_symp), 
             n = n(), 
@@ -1194,14 +1199,17 @@ map_uf_shp_2 <- map_uf_shp %>%
   mutate(federative_unit = as.double(federative_unit))
 
 
-map_uf_shp_3 <- full_join(map_uf_shp_2, select(data_ost_2, federative_unit, median, lethality, median_age, year_3)) %>% 
+map_uf_shp_3 <- full_join(map_uf_shp_2, 
+                          dplyr::select(data_ost_2, federative_unit, median, lethality, median_age, year_3)) %>% 
   mutate(median = replace_na(median, 0)) %>% 
   mutate(lethality = replace_na(lethality, 0)) %>% 
-  mutate(category = factor(case_when(median > 0  & median < 20 ~ "1 to 19",
-                              median >= 20 & median <40 ~ "20 to 39",
-                              median >= 40 & median <59 ~ "40 to 59",
-                              median >= 60 & median <79 ~ "60 to 79",
-                              median >= 80 ~ "> 80",
+  mutate(category = factor(case_when(median > 14  & median <= 19 ~ "15 to 19",
+                              median >= 20 & median <= 24 ~ "20 to 24",
+                              median >= 25 & median <= 29 ~ "25 to 29",
+                              median >= 30 & median <= 34 ~ "30 to 34",
+                              median >= 35 & median <= 39 ~ "35 to 39",
+                              median >= 40 & median <= 45 ~ "40 to 44",
+                              median >= 45 ~ "45 to 50",
                               TRUE ~ "Less than 100 cases")), 
          nm_uf = na_if(str_trim(nm_uf), "Distrito Federal")) %>%
   st_as_sf()
@@ -1209,7 +1217,10 @@ map_uf_shp_3 <- full_join(map_uf_shp_2, select(data_ost_2, federative_unit, medi
 map_uf_shp_df <- as.data.frame(map_uf_shp_3)
 export(map_uf_shp_3, here("data base and clean", "map_uf_shp_df.rds"))
 
-breaks <- c(10, 20, 40, 60, 80, Inf)
+map_uf_shp_3 <- import(here("data base and clean", "map_uf_shp_df.rds"))
+map_uf_shp_3 <- st_as_sf(map_uf_shp_3)
+
+breaks <- c(10, 20, 30, 40, 50, Inf)
 
 ggplot(map_uf_shp_3) +
   geom_sf(aes(fill = median), color = "white") +
@@ -1221,17 +1232,21 @@ ggplot(map_uf_shp_3) +
   theme_minimal() +
   theme(legend.position = "right",
         legend.title.position = "bottom",
-        plot.title.position = element_text(hjust = 0.5)) +
+        plot.title = element_text(hjust = 0.5)) +
   facet_wrap(~year_3, nrow = 2) 
 
+map_uf_shp_3 %>% 
+  tabyl(median)
 
 pal_blue_red <- c(
   "Less than 100 cases" = "gray",  # light blue
-  "1 to 19"  = "#A9CCF7",  # medium soft blue
-  "20 to 39" = "#6FA6E0",  # deeper blue
-  "40 to 59" = "#F5A3A0",  # soft red
-  "60 to 79" = "#CC4C46",  # coral
-  ">= 80"    = "brown" # strong warm red
+  "15 to 19"  = "lightgreen",
+  "20 to 24"  = "#A9CCF7",  # medium soft blue
+  "25 to 29" = "#6FA6E0",  # deeper blue
+  "30 to 34" = "#F5A3A0",  # soft red
+  "35 to 39" = "#CC4C46",  # coral
+  "40 to 44" = "brown3", # strong warm red
+  "45 to 50" = "brown4"
 )
 
 pal_green_red <- c(
@@ -1258,7 +1273,7 @@ pal_green_red <- c(
     ggtitle("Visceral Leishmaniasis Brazil\nFederative states with more than 100 cases") +
     scale_fill_manual(
       values = pal_blue_red, drop = FALSE,
-      name = "Delay (sympt → treatment)"
+      name = "TTI (sympt → treatment)"
     ) +
     scale_size_continuous(range = c(1, 12)) +  # adjust dot size range
     
@@ -1269,9 +1284,10 @@ pal_green_red <- c(
       plot.title = element_text(hjust = 0.5)
     ) +
     facet_wrap(~year_3, nrow = 2)
+  
 
 #### Final map to identify conditions related lethality and distribution of cases in Brazil 
-  ggplot(map_uf_shp_3) +
+  map_final <- ggplot(map_uf_shp_3) +
     geom_sf(aes(fill = category), color = "white") +
    # geom_sf( data = map_centroids, aes(
     #  color = lethality),
@@ -1284,7 +1300,7 @@ pal_green_red <- c(
     labs(fill = "Median delay", color = "Lethality rate") +
     ggtitle("Visceral Leishmaniasis Brazil\nFederative states with more than 100 cases") +
     scale_fill_manual(values = pal_blue_red, drop = FALSE,
-                      name = "Delay (sympt → treatment)") +
+                      name = "TTI (sympt → treatment)") +
     scale_size_area(max_size = 12) +
     scale_color_viridis_c(option = "plasma") +
     theme_void() +
@@ -1294,6 +1310,10 @@ pal_green_red <- c(
       plot.title = element_text(hjust = 0.5, face = "bold", size = 14, color = "black"),
       strip.text = element_text(size = 12)) +
     facet_wrap(~year_3, nrow = 2) 
+    
+  ggsave(map_final, path = here("figures and tables"),
+           width = 10, height = 8, dpi = 300,
+           file = "map.png")
   
 ############################# Survival analysis Kaplan Meier curves ######################################################################
   
@@ -2089,7 +2109,7 @@ g1 <- ggplot(x1, aes(x = time, y = `0-30 days`*10000)) +
   geom_vline(aes(xintercept = 11), color = "purple3",
              linetype = "dashed") +
   labs(x = "Time from treatment initiation (days)", y = "Baseline hazard X 10,000 per day",
-       color = "Delay categories") +
+       color = "TTI categories") +
   scale_color_manual(breaks = c("0-30 days",
                                 "31-60 days",
                                 "61-90 days",

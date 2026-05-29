@@ -750,9 +750,9 @@ map_uf_shp_3 <- st_as_sf(map_uf_shp_3)
     #  color = lethality),
     #  alpha = 0.5,
     #  size = 3) +
-    geom_sf_label(data = map_points, inherit.aes = FALSE,
-      aes(label = nm_uf, geometry = geometry, vjust = -0.3), fill = NA,
-      color = "black", label.size = 0, size = 2, fontface = "bold") +
+    #geom_sf_label(data = map_points, inherit.aes = FALSE,
+     # aes(label = nm_uf, geometry = geometry, vjust = -0.3), fill = NA,
+      #color = "black", label.size = 0, size = 2, fontface = "bold") +
     labs(fill = "Median delay", color = "Lethality rate") +
     labs(fill = "Median delay", color = "Lethality rate") +
     ggtitle("Visceral Leishmaniasis Brazil\nFederative states with more than 100 cases") +
