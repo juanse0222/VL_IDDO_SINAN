@@ -581,6 +581,7 @@ data_6 %>%
 
 data_6 %>% 
   tabyl(hemorrhagic_phenomena)
+
 ############################# GAM and logistic model for mortality evaluation ###################################################
 
 var_order_2 <- c("age_group_2", "gender",  "region",
